@@ -26,3 +26,4 @@ from app.models.dispatcher_action import DispatcherAction
 from app.models.booked_load import BookedLoad
 from app.models.scoring_preference import ScoringPreference
 from app.models.scoring_result import ScoringResult
+from app.models.ai_explanation import AIExplanation

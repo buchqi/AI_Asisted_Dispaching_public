@@ -15,6 +15,9 @@ from app.schemas.load import LoadResponse, LoadSnapshotResponse
 from app.services.dispatcher_action_service import (
     get_action_state_for_session_loads,
 )
+from app.services.ai_explanation_service import (
+    get_existing_explanations_for_scores,
+)
 from app.services.load_service import (
     get_load_by_id,
     get_load_snapshot_by_id,
@@ -73,6 +76,10 @@ def list_truck_search_session_loads_endpoint(
         truck_search_session_id=truck_search_session_id,
         current_user=current_user,
     )
+    explanations = get_existing_explanations_for_scores(
+        db=db,
+        scoring_results=list(scores.values()),
+    )
 
     for snapshot in snapshots:
         snapshot.action_state = action_state.get(
@@ -89,6 +96,12 @@ def list_truck_search_session_loads_endpoint(
         if score is not None:
             snapshot.score = score.score
             snapshot.score_breakdown = score.breakdown
+
+        explanation = explanations.get(snapshot.id)
+
+        if explanation is not None:
+            snapshot.explanation_text = explanation.explanation_text
+            snapshot.ai_explanation = explanation
 
     return snapshots
 

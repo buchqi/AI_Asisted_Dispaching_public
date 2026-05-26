@@ -13,6 +13,7 @@ from app.schemas.scoring import (
     ScoringPreferenceUpdate,
     ScoringResultResponse,
 )
+from app.services.ai_explanation_service import AIExplanationService
 from app.services.scoring_service import (
     calculate_scores_for_truck_search_session,
     get_or_create_preferences,
@@ -101,8 +102,21 @@ def score_truck_search_session_endpoint(
     Calculate and return ranked load scores for one truck search session.
     """
 
-    return calculate_scores_for_truck_search_session(
+    results = calculate_scores_for_truck_search_session(
         db=db,
         truck_search_session_id=truck_search_session_id,
         current_user=current_user,
     )
+    explanations = AIExplanationService().generate_for_top_loads(
+        db=db,
+        scoring_results=results,
+    )
+
+    for result in results:
+        explanation = explanations.get(result.load_snapshot_id)
+
+        if explanation is not None:
+            result.explanation_text = explanation.explanation_text
+            result.ai_explanation = explanation
+
+    return results

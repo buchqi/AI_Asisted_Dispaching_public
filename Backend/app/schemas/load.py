@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.ai import AIExplanationResponse
+
 
 class LoadResponse(BaseModel):
     id: int
@@ -59,5 +61,7 @@ class LoadSnapshotResponse(BaseModel):
     action_state: dict[str, bool] | None = None
     score: float | None = None
     score_breakdown: dict[str, Any] | None = None
+    explanation_text: str | None = None
+    ai_explanation: AIExplanationResponse | None = None
 
     model_config = ConfigDict(from_attributes=True)
