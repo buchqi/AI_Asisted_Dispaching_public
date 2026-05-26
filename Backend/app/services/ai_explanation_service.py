@@ -11,29 +11,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.ai_explanation import AIExplanation
-from app.models.load import Load
 from app.models.load_snapshot import LoadSnapshot
 from app.models.scoring_result import ScoringResult
 from app.services.llm.base import LLMClient
 from app.services.llm.gemini_client import GeminiClient
-
+from app.services.prompts.ai_explanation_prompts import (
+    PROMPT_VERSION,
+    build_explanation_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "ai_explanation_v1"
 DEFAULT_TOP_LOAD_LIMIT = 5
-
-
-def calculate_rate_per_mile(snapshot: LoadSnapshot) -> float | None:
-    if snapshot.posted_rate is None or not snapshot.miles:
-        return None
-
-    return round(snapshot.posted_rate / snapshot.miles, 2)
-
-
-def format_location(city: str | None, state: str | None) -> str:
-    parts = [part for part in [city, state] if part]
-    return ", ".join(parts) if parts else "Unknown"
+MIN_EXPLANATION_TEXT_LENGTH = 40
 
 
 def stable_json(value: Any) -> str:
@@ -47,10 +37,6 @@ def build_input_hash(
     breakdown: dict[str, Any] | None,
     prompt_version: str = PROMPT_VERSION,
 ) -> str:
-    """
-    Build a deterministic hash for explanation reuse.
-    """
-
     raw_input = stable_json(
         {
             "load_snapshot_id": load_snapshot_id,
@@ -59,52 +45,21 @@ def build_input_hash(
             "prompt_version": prompt_version,
         }
     )
-
     return hashlib.sha256(raw_input.encode("utf-8")).hexdigest()
 
+def is_complete_explanation(text: str | None) -> bool:
+    if not text:
+        return False
 
-def build_explanation_prompt(
-    *,
-    snapshot: LoadSnapshot,
-    load: Load,
-    scoring_result: ScoringResult,
-) -> str:
-    """
-    Build the freight-dispatcher explanation prompt.
-    """
+    cleaned = text.strip()
 
-    rate_per_mile = calculate_rate_per_mile(snapshot)
+    if len(cleaned) < 80:
+        return False
 
-    return f"""
-You are an experienced freight dispatcher.
+    if not cleaned.endswith((".", "!", "?")):
+        return False
 
-Your task is to explain why this load received a high score.
-
-Use ONLY the information provided.
-
-Load Information:
-- Rate: {snapshot.posted_rate}
-- Rate Per Mile: {rate_per_mile}
-- Miles: {snapshot.miles}
-- Origin: {format_location(load.origin_city, load.origin_state)}
-- Destination: {format_location(load.destination_city, load.destination_state)}
-- Broker: {load.broker_name or "Unknown"}
-
-Scoring Information:
-- Final Score: {scoring_result.score}
-- Score Breakdown: {stable_json(scoring_result.breakdown or {})}
-
-Explain:
-
-1. Why the load is attractive.
-2. Any possible weaknesses or risks.
-3. A short recommendation.
-
-Do not invent facts.
-Do not assume missing information.
-Keep the explanation concise.
-Maximum 120 words.
-""".strip()
+    return True
 
 
 class AIExplanationService:
@@ -121,13 +76,6 @@ class AIExplanationService:
         *,
         scoring_result: ScoringResult,
     ) -> AIExplanation | None:
-        """
-        Return an existing explanation or generate/store a new one.
-
-        Gemini failures are logged and converted into a nullable explanation
-        row so the search and scoring workflows continue.
-        """
-
         snapshot = self._load_snapshot(
             db=db,
             load_snapshot_id=scoring_result.load_snapshot_id,
@@ -145,6 +93,7 @@ class AIExplanationService:
             score=scoring_result.score,
             breakdown=scoring_result.breakdown,
         )
+
         existing = self.get_existing_explanation(
             db=db,
             company_id=scoring_result.company_id,
@@ -152,7 +101,13 @@ class AIExplanationService:
             input_hash=input_hash,
         )
 
-        if existing is not None:
+        # Reuse only successful explanations.
+        # Do NOT reuse failed/null explanations.
+        if (
+            existing is not None
+            and existing.explanation_text
+            and len(existing.explanation_text.strip()) >= MIN_EXPLANATION_TEXT_LENGTH
+        ):
             return existing
 
         return self.generate_for_load(
@@ -160,6 +115,7 @@ class AIExplanationService:
             scoring_result=scoring_result,
             snapshot=snapshot,
             input_hash=input_hash,
+            existing=existing,
         )
 
     def generate_for_load(
@@ -169,16 +125,14 @@ class AIExplanationService:
         scoring_result: ScoringResult,
         snapshot: LoadSnapshot,
         input_hash: str | None = None,
+        existing: AIExplanation | None = None,
     ) -> AIExplanation | None:
-        """
-        Generate, store, and return one explanation.
-        """
-
         input_hash = input_hash or build_input_hash(
             load_snapshot_id=scoring_result.load_snapshot_id,
             score=scoring_result.score,
             breakdown=scoring_result.breakdown,
         )
+
         explanation_text: str | None = None
 
         try:
@@ -188,11 +142,55 @@ class AIExplanationService:
                 scoring_result=scoring_result,
             )
             explanation_text = self.llm_client.generate_text(prompt)
+            if not is_complete_explanation(explanation_text):
+                logger.error(
+                    "Skipping incomplete AI explanation for scoring_result_id=%s: %r",
+                    scoring_result.id,
+                    explanation_text,
+                )
+                return None
+
+            if explanation_text:
+                explanation_text = explanation_text.strip()
+
+            if not explanation_text:
+                logger.error(
+                    "Gemini returned empty explanation for scoring_result_id=%s",
+                    scoring_result.id,
+                )
+
         except Exception:
             logger.exception(
                 "AI explanation generation failed for scoring_result_id=%s",
                 scoring_result.id,
             )
+
+        if not explanation_text:
+            logger.error(
+                "Skipping incomplete AI explanation for scoring_result_id=%s",
+                scoring_result.id,
+            )
+            return None
+
+        if len(explanation_text.strip()) < MIN_EXPLANATION_TEXT_LENGTH:
+            logger.error(
+                "Skipping incomplete AI explanation for scoring_result_id=%s",
+                scoring_result.id,
+            )
+            return None
+
+        # If an old failed/null row exists for this input_hash, update it only
+        # after a successful generation.
+        if existing is not None:
+            existing.provider = self.llm_client.provider
+            existing.model_name = self.llm_client.model_name
+            existing.explanation_text = explanation_text
+            existing.prompt_version = PROMPT_VERSION
+            existing.input_hash = input_hash
+
+            db.commit()
+            db.refresh(existing)
+            return existing
 
         explanation = AIExplanation(
             company_id=scoring_result.company_id,
@@ -221,6 +219,16 @@ class AIExplanationService:
                 input_hash=input_hash,
             )
 
+        if (
+            explanation is not None
+            and (
+                not explanation.explanation_text
+                or len(explanation.explanation_text.strip())
+                < MIN_EXPLANATION_TEXT_LENGTH
+            )
+        ):
+            return None
+
         return explanation
 
     def generate_for_top_loads(
@@ -230,15 +238,12 @@ class AIExplanationService:
         scoring_results: list[ScoringResult],
         limit: int = DEFAULT_TOP_LOAD_LIMIT,
     ) -> dict[int, AIExplanation]:
-        """
-        Generate explanations only for the highest scoring loads.
-        """
-
         top_results = sorted(
             scoring_results,
             key=lambda result: result.score,
             reverse=True,
         )[:limit]
+
         explanations: dict[int, AIExplanation] = {}
 
         for scoring_result in top_results:
@@ -247,7 +252,12 @@ class AIExplanationService:
                 scoring_result=scoring_result,
             )
 
-            if explanation is not None:
+            if (
+                explanation is not None
+                and explanation.explanation_text
+                and len(explanation.explanation_text.strip())
+                >= MIN_EXPLANATION_TEXT_LENGTH
+            ):
                 explanations[scoring_result.load_snapshot_id] = explanation
 
         return explanations
@@ -290,10 +300,6 @@ def get_existing_explanations_for_session(
     truck_search_session_id: int,
     dispatcher_user_id: int,
 ) -> dict[int, AIExplanation]:
-    """
-    Return existing explanations keyed by load_snapshot_id.
-    """
-
     explanations = (
         db.query(AIExplanation)
         .filter(
@@ -314,10 +320,6 @@ def get_existing_explanations_for_scores(
     *,
     scoring_results: list[ScoringResult],
 ) -> dict[int, AIExplanation]:
-    """
-    Return existing explanations matching the current score inputs.
-    """
-
     if not scoring_results:
         return {}
 
@@ -329,12 +331,11 @@ def get_existing_explanations_for_scores(
         )
         for result in scoring_results
     }
+
     input_hashes = set(input_hashes_by_snapshot_id.values())
-    dispatcher_user_ids = {
-        result.dispatcher_user_id
-        for result in scoring_results
-    }
+    dispatcher_user_ids = {result.dispatcher_user_id for result in scoring_results}
     company_ids = {result.company_id for result in scoring_results}
+
     explanations = (
         db.query(AIExplanation)
         .filter(
@@ -350,4 +351,6 @@ def get_existing_explanations_for_scores(
         for explanation in explanations
         if input_hashes_by_snapshot_id.get(explanation.load_snapshot_id)
         == explanation.input_hash
+        and explanation.explanation_text
+        and len(explanation.explanation_text.strip()) >= MIN_EXPLANATION_TEXT_LENGTH
     }

@@ -7,8 +7,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from app.schemas.ai import AIExplanationResponse
-
 
 class ScoringPreferenceUpdate(BaseModel):
     rate_weight: float | None = None
@@ -60,8 +58,6 @@ class ScoringResultResponse(BaseModel):
     truck_search_session_id: int | None
     score: float
     breakdown: dict[str, Any] | None
-    explanation_text: str | None = None
-    ai_explanation: AIExplanationResponse | None = None
     created_at: datetime
     updated_at: datetime
 

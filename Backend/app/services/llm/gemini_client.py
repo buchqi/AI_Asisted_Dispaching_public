@@ -12,6 +12,7 @@ from app.core.config import settings
 
 
 logger = logging.getLogger(__name__)
+MIN_RESPONSE_TEXT_LENGTH = 50
 
 
 class GeminiClient:
@@ -21,7 +22,7 @@ class GeminiClient:
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key if api_key is not None else settings.gemini_api_key
 
-    def generate_text(self, prompt: str, *, timeout_seconds: int = 20) -> str:
+    def generate_text(self, prompt: str, *, timeout_seconds: int = 50) -> str:
         """
         Send a prompt to Gemini and return the response text.
         """
@@ -42,8 +43,8 @@ class GeminiClient:
                 }
             ],
             "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": 180,
+                "maxOutputTokens": 512,
+                "temperature": 0.3,
             },
         }
         request = Request(
@@ -68,13 +69,13 @@ class GeminiClient:
         candidates = data.get("candidates") or []
 
         if not candidates:
+            logger.error(
+                "Gemini returned no candidates. Response: %s",
+                self._sanitize_response(data),
+            )
             raise ValueError("Gemini returned no candidates.")
 
-        parts = (
-            candidates[0]
-            .get("content", {})
-            .get("parts", [])
-        )
+        parts = candidates[0].get("content", {}).get("parts", [])
         text = "".join(
             part.get("text", "")
             for part in parts
@@ -82,6 +83,25 @@ class GeminiClient:
         ).strip()
 
         if not text:
+            logger.error(
+                "Gemini returned no text parts. Response: %s",
+                self._sanitize_response(data),
+            )
             raise ValueError("Gemini returned an empty text response.")
 
+        if len(text) < MIN_RESPONSE_TEXT_LENGTH:
+            logger.error(
+                "Gemini returned incomplete text (%s chars). Response: %s",
+                len(text),
+                self._sanitize_response(data),
+            )
+            raise ValueError("Gemini returned an incomplete text response.")
+
         return text
+
+    def _sanitize_response(self, data: dict) -> str:
+        """
+        Return response JSON for logging without request credentials.
+        """
+
+        return json.dumps(data, sort_keys=True, default=str)
