@@ -5,7 +5,7 @@ Truck search session model.
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -83,6 +83,12 @@ class TruckSearchSession(Base):
     error_message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
+    )
+
+    is_hidden: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
     )
 
     created_at: Mapped[datetime] = mapped_column(

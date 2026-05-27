@@ -28,7 +28,7 @@ WorkerLogLevel = Literal[
 class SearchStartRequest(BaseModel):
     company_id: int
     truck_ids: list[int]
-    filters: dict[str, Any] | None = None
+    overrides: dict[str, Any] | None = None
     timeout_seconds: int | None = None
 
 

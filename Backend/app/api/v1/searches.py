@@ -19,6 +19,7 @@ from app.schemas.search import (
 from app.services.membership_service import require_company_member
 from app.services.search_service import (
     cancel_truck_search_session,
+    clear_truck_search_session,
     get_search_batch,
     get_truck_search_session,
     list_truck_sessions_for_batch,
@@ -198,3 +199,41 @@ def cancel_truck_search_session_endpoint(
         session=session,
         current_user=current_user,
     )
+
+
+@router.delete(
+    "/truck-search-sessions/{truck_search_session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_truck_search_session_endpoint(
+    truck_search_session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Clear a final truck search session from visible history.
+    """
+
+    session = get_truck_search_session(
+        db=db,
+        truck_search_session_id=truck_search_session_id,
+    )
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Truck search session not found.",
+        )
+
+    require_company_member(
+        db=db,
+        current_user=current_user,
+        company_id=session.company_id,
+    )
+
+    clear_truck_search_session(
+        db=db,
+        session=session,
+    )
+
+    return None

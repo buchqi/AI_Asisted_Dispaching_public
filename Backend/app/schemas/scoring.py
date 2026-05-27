@@ -62,3 +62,25 @@ class ScoringResultResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LoadSnapshotScoreResponse(BaseModel):
+    id: int
+    load_id: int
+    source: str | None
+    broker: str | None
+    origin: str | None
+    destination: str | None
+    pickup_date: datetime | None
+    delivery_date: datetime | None
+    posted_rate: float | None
+    miles: int | None
+    rpm: float | None
+    deadhead_miles: int | None
+    weight: int | None
+    equipment_type: str | None
+    raw_data: dict[str, Any] | None
+
+
+class ScoringResultWithLoadSnapshotResponse(ScoringResultResponse):
+    load_snapshot: LoadSnapshotScoreResponse

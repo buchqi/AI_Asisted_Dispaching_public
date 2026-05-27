@@ -21,7 +21,8 @@ from app.services.worker_log_service import create_worker_log
 from app.workers.worker_manager import WorkerManager
 
 
-FINAL_STATUSES = {"completed", "failed", "canceled", "timeout"}
+ACTIVE_STATUSES = {"pending", "running"}
+FINAL_STATUSES = {"completed", "failed", "canceled", "cancelled", "timeout"}
 
 
 def utc_now() -> datetime:
@@ -74,7 +75,29 @@ def start_search_batch(
             detail="All trucks must belong to the selected company.",
         )
 
-    filters_snapshot = data.filters.copy() if data.filters is not None else None
+    validate_trucks_available_for_search(trucks)
+
+    active_session = (
+        db.query(TruckSearchSession)
+        .filter(
+            TruckSearchSession.company_id == data.company_id,
+            TruckSearchSession.truck_id.in_(data.truck_ids),
+            TruckSearchSession.status.in_(ACTIVE_STATUSES),
+            TruckSearchSession.is_hidden.is_(False),
+        )
+        .first()
+    )
+
+    if active_session:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Truck already has active search",
+        )
+
+    filters_snapshot = {
+        "truck_ids": data.truck_ids,
+        "overrides": data.overrides or {},
+    }
 
     batch = SearchBatch(
         company_id=data.company_id,
@@ -90,16 +113,20 @@ def start_search_batch(
     db.add(batch)
     db.flush()
 
+    trucks_by_id = {truck.id: truck for truck in trucks}
+
     for truck_id in data.truck_ids:
+        truck_filters_snapshot = build_truck_filters_snapshot(
+            truck=trucks_by_id[truck_id],
+            overrides=data.overrides,
+        )
         truck_session = TruckSearchSession(
             search_batch_id=batch.id,
             company_id=data.company_id,
             truck_id=truck_id,
             owner_user_id=current_user.id,
             status="pending",
-            filters_snapshot=(
-                data.filters.copy() if data.filters is not None else None
-            ),
+            filters_snapshot=truck_filters_snapshot,
             timeout_seconds=data.timeout_seconds,
         )
         db.add(truck_session)
@@ -108,6 +135,71 @@ def start_search_batch(
     db.refresh(batch)
 
     return batch
+
+
+def validate_trucks_available_for_search(trucks: list[Truck]) -> None:
+    for truck in trucks:
+        normalized_status = (truck.status or "").strip().lower()
+
+        if normalized_status == "available":
+            continue
+        if normalized_status == "loaded":
+            message = "Truck is loaded and cannot start a new search"
+        elif normalized_status == "moving":
+            message = "Truck is moving and cannot start a new search"
+        elif normalized_status in {"service_needed", "maintenance"}:
+            message = "Truck needs service and cannot start a new search"
+        else:
+            message = "Truck is not available for search"
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=message,
+        )
+
+
+def build_truck_filters_snapshot(
+    truck: Truck,
+    overrides: dict | None = None,
+) -> dict:
+    """
+    Generate the search filters snapshot from truck defaults plus overrides.
+
+    Later real search execution should read from this snapshot instead of asking
+    the frontend to provide a giant filter payload.
+    """
+
+    snapshot = {
+        "truck_id": truck.id,
+        "truck_number": truck.truck_id,
+        "equipment_type": truck.equipment_type,
+        "current_location": truck.current_location,
+        "available_from": (
+            truck.available_from.isoformat()
+            if truck.available_from is not None
+            else None
+        ),
+        "max_deadhead_miles": truck.max_deadhead_miles,
+        "min_rpm": truck.min_rpm,
+        "max_weight": truck.max_weight,
+        "preferred_broker_sources": parse_broker_sources(
+            truck.preferred_broker_sources
+        ),
+    }
+
+    if overrides:
+        snapshot.update(overrides)
+
+    return snapshot
+
+
+def parse_broker_sources(value: str | list[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [item.strip() for item in value if item.strip()]
+
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def run_search_batch_workers(
@@ -167,7 +259,10 @@ def list_truck_sessions_for_batch(
 
     return (
         db.query(TruckSearchSession)
-        .filter(TruckSearchSession.search_batch_id == search_batch_id)
+        .filter(
+            TruckSearchSession.search_batch_id == search_batch_id,
+            TruckSearchSession.is_hidden.is_(False),
+        )
         .order_by(TruckSearchSession.id.asc())
         .all()
     )
@@ -220,3 +315,25 @@ def cancel_truck_search_session(
     db.refresh(session)
 
     return session
+
+
+def clear_truck_search_session(
+    db: Session,
+    session: TruckSearchSession,
+) -> None:
+    """
+    Hide a final truck search session from session lists.
+
+    This keeps related worker logs, load snapshots, and future audit records
+    intact while letting the frontend clear old completed session history.
+    """
+
+    if session.status in ACTIVE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete active search session. Cancel it first.",
+        )
+
+    session.is_hidden = True
+    db.add(session)
+    db.commit()

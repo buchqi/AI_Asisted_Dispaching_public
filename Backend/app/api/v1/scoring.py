@@ -4,10 +4,11 @@ Rule-based scoring API endpoints.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models.load_snapshot import LoadSnapshot
 from app.models.ai_explanation import AIExplanation
 from app.models.scoring_result import ScoringResult
 from app.models.user import User
@@ -16,6 +17,7 @@ from app.schemas.scoring import (
     ScoringPreferenceResponse,
     ScoringPreferenceUpdate,
     ScoringResultResponse,
+    ScoringResultWithLoadSnapshotResponse,
 )
 from app.services.ai_explanation_service import (
     AIExplanationService,
@@ -116,6 +118,103 @@ def score_truck_search_session_endpoint(
         truck_search_session_id=truck_search_session_id,
         current_user=current_user,
     )
+
+
+@router.get(
+    "/truck-search-sessions/{truck_search_session_id}/scores",
+    response_model=list[ScoringResultWithLoadSnapshotResponse],
+)
+def list_truck_search_session_scores_endpoint(
+    truck_search_session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return ranked scored loads with nested load snapshot summaries.
+    """
+
+    calculate_scores_for_truck_search_session(
+        db=db,
+        truck_search_session_id=truck_search_session_id,
+        current_user=current_user,
+    )
+
+    results = (
+        db.query(ScoringResult)
+        .options(
+            joinedload(ScoringResult.load_snapshot).joinedload(LoadSnapshot.load),
+            joinedload(ScoringResult.load_snapshot).selectinload(LoadSnapshot.sources),
+        )
+        .filter(
+            ScoringResult.truck_search_session_id == truck_search_session_id,
+            ScoringResult.dispatcher_user_id == current_user.id,
+        )
+        .order_by(ScoringResult.score.desc(), ScoringResult.id.asc())
+        .all()
+    )
+
+    return [
+        serialize_scoring_result_with_snapshot(result)
+        for result in results
+    ]
+
+
+def serialize_scoring_result_with_snapshot(result: ScoringResult) -> dict:
+    snapshot = result.load_snapshot
+    load = snapshot.load
+    source = snapshot.sources[0] if snapshot.sources else None
+    raw_data = snapshot.raw_payload or {}
+
+    return {
+        "id": result.id,
+        "company_id": result.company_id,
+        "dispatcher_user_id": result.dispatcher_user_id,
+        "load_snapshot_id": result.load_snapshot_id,
+        "load_id": result.load_id,
+        "truck_search_session_id": result.truck_search_session_id,
+        "score": result.score,
+        "breakdown": result.breakdown,
+        "created_at": result.created_at,
+        "updated_at": result.updated_at,
+        "load_snapshot": {
+            "id": snapshot.id,
+            "load_id": snapshot.load_id,
+            "source": source.load_board_name if source else None,
+            "broker": load.broker_name,
+            "origin": format_location(load.origin_city, load.origin_state),
+            "destination": format_location(load.destination_city, load.destination_state),
+            "pickup_date": snapshot.pickup_date or load.pickup_date,
+            "delivery_date": snapshot.delivery_date or load.delivery_date,
+            "posted_rate": snapshot.posted_rate,
+            "miles": snapshot.miles,
+            "rpm": calculate_rpm(snapshot.posted_rate, snapshot.miles),
+            "deadhead_miles": get_optional_int_from_raw(raw_data, "deadhead_miles", "deadhead"),
+            "weight": snapshot.weight,
+            "equipment_type": load.equipment_type,
+            "raw_data": raw_data,
+        },
+    }
+
+
+def format_location(city: str | None, state: str | None) -> str | None:
+    parts = [part for part in [city, state] if part]
+    return ", ".join(parts) if parts else None
+
+
+def calculate_rpm(posted_rate: float | None, miles: int | None) -> float | None:
+    if posted_rate is None or not miles:
+        return None
+
+    return round(posted_rate / miles, 2)
+
+
+def get_optional_int_from_raw(raw_data: dict, *keys: str) -> int | None:
+    for key in keys:
+        value = raw_data.get(key)
+        if value is not None:
+            return int(value)
+
+    return None
 
 
 def get_ranked_existing_scores_for_session(
