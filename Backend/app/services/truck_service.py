@@ -74,6 +74,14 @@ def create_truck(
         truck_id=truck_data.truck_id,
         equipment_type=truck_data.equipment_type,
         status=truck_data.status,
+        current_location=truck_data.current_location,
+        available_from=truck_data.available_from,
+        max_deadhead_miles=truck_data.max_deadhead_miles,
+        min_rpm=truck_data.min_rpm,
+        max_weight=truck_data.max_weight,
+        preferred_broker_sources=serialize_broker_sources(
+            truck_data.preferred_broker_sources
+        ),
         notes=truck_data.notes,
     )
 
@@ -225,12 +233,12 @@ def update_truck(
                 detail="Truck number already exists in this company",
             )
 
-    """
-    Update normal fields.
-    """
-
-    for field, value in update_data.items():
-        setattr(truck, field, value)
+    apply_truck_update_fields(
+        db=db,
+        truck=truck,
+        company_id=company_id,
+        update_data=update_data,
+    )
 
     db.commit()
     db.refresh(truck)
@@ -343,3 +351,63 @@ def assign_driver_to_truck(
     db.refresh(truck)
 
     return truck
+
+
+def apply_truck_update_fields(
+    db: Session,
+    truck: Truck,
+    company_id: int,
+    update_data: dict,
+) -> None:
+    """
+    Apply truck profile updates while keeping driver display fields in sync.
+    """
+
+    if "preferred_broker_sources" in update_data:
+        update_data["preferred_broker_sources"] = serialize_broker_sources(
+            update_data["preferred_broker_sources"]
+        )
+
+    if "current_driver_id" in update_data:
+        driver_id = update_data.pop("current_driver_id")
+        if driver_id is None:
+            truck.current_driver_id = None
+            truck.current_driver_name = None
+            truck.current_driver_surname = None
+        else:
+            driver = (
+                db.query(Driver)
+                .filter(
+                    Driver.id == driver_id,
+                    Driver.company_id == company_id,
+                )
+                .first()
+            )
+
+            if not driver:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Driver not found",
+                )
+
+            truck.current_driver_id = driver.id
+            truck.current_driver_name = driver.first_name
+            truck.current_driver_surname = driver.last_name
+
+    for field, value in update_data.items():
+        setattr(truck, field, value)
+
+
+def serialize_broker_sources(value: list[str] | str | None) -> str | None:
+    """
+    Store preferred broker sources as a simple comma-separated string for MVP.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        values = [item.strip() for item in value.split(",") if item.strip()]
+    else:
+        values = [item.strip() for item in value if item.strip()]
+
+    return ",".join(values) if values else None

@@ -7,6 +7,12 @@ export type Truck = {
   current_driver_surname?: string | null;
   equipment_type?: string | null;
   status: string;
+  current_location?: string | null;
+  available_from?: string | null;
+  max_deadhead_miles?: number | null;
+  min_rpm?: number | null;
+  max_weight?: number | null;
+  preferred_broker_sources?: string[];
   notes?: string | null;
 };
 
@@ -15,8 +21,13 @@ export type CreateTruckPayload = {
   current_driver_id?: number | null;
   equipment_type?: string | null;
   status?: string;
+  current_location?: string | null;
+  available_from?: string | null;
+  max_deadhead_miles?: number | null;
+  min_rpm?: number | null;
+  max_weight?: number | null;
+  preferred_broker_sources?: string[];
   notes?: string | null;
 };
 
 export type UpdateTruckPayload = Partial<CreateTruckPayload>;
-

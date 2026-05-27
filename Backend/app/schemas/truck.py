@@ -11,7 +11,18 @@ truck_id here means internal company truck number.
 It is NOT the database primary key.
 """
 
-from pydantic import BaseModel
+from datetime import date
+
+from pydantic import BaseModel, Field, field_validator
+
+
+def normalize_broker_sources(value: list[str] | str | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    return [item.strip() for item in value if item.strip()]
 
 
 class TruckCreate(BaseModel):
@@ -26,7 +37,18 @@ class TruckCreate(BaseModel):
     current_driver_id: int | None = None
     equipment_type: str | None = None
     status: str = "available"
+    current_location: str | None = None
+    available_from: date | None = None
+    max_deadhead_miles: int | None = None
+    min_rpm: float | None = None
+    max_weight: int | None = None
+    preferred_broker_sources: list[str] | str | None = None
     notes: str | None = None
+
+    @field_validator("preferred_broker_sources", mode="before")
+    @classmethod
+    def validate_preferred_broker_sources(cls, value):
+        return normalize_broker_sources(value)
 
 
 class TruckUpdate(BaseModel):
@@ -40,7 +62,18 @@ class TruckUpdate(BaseModel):
     current_driver_id: int | None = None
     equipment_type: str | None = None
     status: str | None = None
+    current_location: str | None = None
+    available_from: date | None = None
+    max_deadhead_miles: int | None = None
+    min_rpm: float | None = None
+    max_weight: int | None = None
+    preferred_broker_sources: list[str] | str | None = None
     notes: str | None = None
+
+    @field_validator("preferred_broker_sources", mode="before")
+    @classmethod
+    def validate_preferred_broker_sources(cls, value):
+        return normalize_broker_sources(value)
 
 
 class AssignDriverRequest(BaseModel):
@@ -69,7 +102,18 @@ class TruckResponse(BaseModel):
     current_driver_surname: str | None = None
     equipment_type: str | None = None
     status: str
+    current_location: str | None = None
+    available_from: date | None = None
+    max_deadhead_miles: int | None = None
+    min_rpm: float | None = None
+    max_weight: int | None = None
+    preferred_broker_sources: list[str] = Field(default_factory=list)
     notes: str | None = None
+
+    @field_validator("preferred_broker_sources", mode="before")
+    @classmethod
+    def validate_preferred_broker_sources(cls, value):
+        return normalize_broker_sources(value)
 
     class Config:
         """

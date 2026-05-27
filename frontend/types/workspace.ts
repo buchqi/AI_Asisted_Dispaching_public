@@ -22,6 +22,12 @@ export type TruckUnit = {
   status: string;
   driver: string;
   currentDriverId?: number | null;
+  availableFrom?: string | null;
+  maxDeadheadMiles?: number | null;
+  minRpm?: number | null;
+  maxWeight?: number | null;
+  preferredBrokerSources?: string[];
+  notes?: string | null;
   trackerState?: "moving" | "stopped";
   trackerCity?: string;
   trackerStateCode?: string;
@@ -59,8 +65,16 @@ export type DriverDraft = {
 
 export type TruckDraft = {
   id: string;
+  currentDriverId: string;
   equipment: string;
+  status: string;
   location: string;
+  availableFrom: string;
+  maxDeadheadMiles: string;
+  minRpm: string;
+  maxWeight: string;
+  preferredBrokerSources: string;
+  notes: string;
 };
 
 export type TrackerDraft = {

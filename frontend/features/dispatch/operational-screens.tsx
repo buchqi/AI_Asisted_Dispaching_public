@@ -88,8 +88,16 @@ const emptyDriverDraft: DriverDraft = {
 
 const emptyTruckDraft: TruckDraft = {
   id: "",
+  currentDriverId: "",
   equipment: "Dry Van",
-  location: ""
+  status: "available",
+  location: "",
+  availableFrom: "",
+  maxDeadheadMiles: "150",
+  minRpm: "2.35",
+  maxWeight: "42000",
+  preferredBrokerSources: "DAT, Truckstop",
+  notes: ""
 };
 
 const emptyTrackerDraft: TrackerDraft = {
@@ -756,7 +764,9 @@ export function TrucksPage() {
   const globalSearch = useWorkspaceStore((state) => state.globalSearch);
   const activeCompanyId = useCompanyStore((state) => state.activeCompanyId);
   const [trucks, setTrucks] = useState<TruckUnit[]>([]);
+  const [drivers, setDrivers] = useState<DriverUnit[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [editingTruck, setEditingTruck] = useState<TruckUnit | null>(null);
   const [draft, setDraft] = useState<TruckDraft>(emptyTruckDraft);
   const [trackerDrafts, setTrackerDrafts] = useState<Record<string, TrackerDraft>>({});
   const [loading, setLoading] = useState(false);
@@ -801,7 +811,7 @@ export function TrucksPage() {
     });
   }, [globalSearch, trucks]);
 
-  const createTruck = async () => {
+  const saveTruck = async () => {
     if (!activeCompanyId) {
       router.replace("/companies");
       return;
@@ -817,14 +827,15 @@ export function TrucksPage() {
     setError("");
 
     try {
-      await trucksApi.createTruck(activeCompanyId, {
-        truck_id: truckId,
-        equipment_type: draft.equipment.trim() || null,
-        status: "available",
-        notes: draft.location.trim() || null
-      });
+      const payload = truckDraftToPayload(draft);
+      if (editingTruck?.backendId) {
+        await trucksApi.updateTruck(activeCompanyId, editingTruck.backendId, payload);
+      } else {
+        await trucksApi.createTruck(activeCompanyId, payload);
+      }
       setDraft(emptyTruckDraft);
       setAddOpen(false);
+      setEditingTruck(null);
       await loadFleet(activeCompanyId);
     } catch (requestError) {
       setError(getRequestMessage(requestError, "Truck request failed."));
@@ -833,12 +844,43 @@ export function TrucksPage() {
     }
   };
 
-  const assignDriverToTruck = async () => {
-    // TODO: Reconnect truck assignment from a dedicated workflow after driver selection is finalized.
+  const openCreateTruck = () => {
+    setDraft(emptyTruckDraft);
+    setEditingTruck(null);
+    setAddOpen(true);
   };
 
-  const unassignTruckDriver = async () => {
-    // TODO: Reconnect truck unassignment from a dedicated workflow after driver selection is finalized.
+  const openEditTruck = (truck: TruckUnit) => {
+    setDraft(truckUnitToDraft(truck));
+    setEditingTruck(truck);
+    setAddOpen(true);
+  };
+
+  const assignDriverToTruck = async (truckId: string, driverName: string) => {
+    if (!activeCompanyId) {
+      return;
+    }
+
+    const truck = trucks.find((item) => item.id === truckId);
+    if (!truck?.backendId) {
+      return;
+    }
+
+    const driver = drivers.find((item) => item.name === driverName);
+
+    setError("");
+    try {
+      await trucksApi.updateTruck(activeCompanyId, truck.backendId, {
+        current_driver_id: driverName ? driver?.id ?? null : null
+      });
+      await loadFleet(activeCompanyId);
+    } catch (requestError) {
+      setError(getRequestMessage(requestError, "Driver assignment failed."));
+    }
+  };
+
+  const unassignTruckDriver = async (truckId: string) => {
+    await assignDriverToTruck(truckId, "");
   };
 
   const deleteTruck = async (truckId: string) => {
@@ -877,7 +919,8 @@ export function TrucksPage() {
     try {
       await trucksApi.updateTruck(activeCompanyId, truck.backendId, {
         status: draft.trackerState,
-        notes: [location, draft.trackerNote.trim()].filter(Boolean).join(" / ") || null
+        current_location: location || null,
+        notes: draft.trackerNote.trim() || null
       });
       await loadFleet(activeCompanyId);
     } catch (requestError) {
@@ -909,10 +952,15 @@ export function TrucksPage() {
     setError("");
 
     try {
-      const truckItems = await trucksApi.listTrucks(companyId);
+      const [truckItems, driverItems] = await Promise.all([
+        trucksApi.listTrucks(companyId),
+        driversApi.listDrivers(companyId)
+      ]);
+      setDrivers(driverItems.map((driver) => driverToUnit(driver, truckItems)));
       setTrucks(truckItems.map(truckToUnit));
     } catch (requestError) {
       setTrucks([]);
+      setDrivers([]);
       setError(getRequestMessage(requestError, "Fleet request failed."));
     } finally {
       setLoading(false);
@@ -929,17 +977,18 @@ export function TrucksPage() {
         { label: "Moving", value: String(moving), tone: "cyan" },
         { label: "Stopped", value: String(stopped), tone: stopped > 0 ? "red" : "green" }
       ]}
-      actions={<IconButton label="Add trailer" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /></IconButton>}
+      actions={<IconButton label="Add trailer" onClick={openCreateTruck}><Plus className="h-4 w-4" /></IconButton>}
     >
       {error ? <div className="mb-4 border border-red-400/25 bg-red-400/10 p-3 text-sm text-red-200">{error}</div> : null}
       {loading ? <div className="border border-white/[0.08] bg-white/[0.025] p-5 text-sm text-slate-500">Loading trucks...</div> : null}
       {!loading && visibleTrucks.length === 0 ? <div className="border border-white/[0.08] bg-white/[0.025] p-5 text-sm text-slate-500">No trucks created for this company yet.</div> : null}
       <FleetGrid
         items={visibleTrucks}
-        drivers={[]}
+        drivers={drivers}
         onStatus={updateTruckStatus}
         onDriverAssign={assignDriverToTruck}
         onDriverUnassign={unassignTruckDriver}
+        onEdit={openEditTruck}
         onDelete={deleteTruck}
         trackerDrafts={trackerDrafts}
         onTrackerDraftChange={(truckId, value) => setTrackerDrafts((items) => ({ ...items, [truckId]: value }))}
@@ -948,9 +997,14 @@ export function TrucksPage() {
       {addOpen ? (
         <AddTruckModal
           draft={draft}
+          drivers={drivers}
+          mode={editingTruck ? "edit" : "create"}
           onDraftChange={setDraft}
-          onClose={() => setAddOpen(false)}
-          onSave={createTruck}
+          onClose={() => {
+            setAddOpen(false);
+            setEditingTruck(null);
+          }}
+          onSave={saveTruck}
           saving={saving}
         />
       ) : null}
@@ -1448,6 +1502,7 @@ function FleetGrid({
   onStatus,
   onDriverAssign,
   onDriverUnassign,
+  onEdit,
   onDelete,
   trackerDrafts,
   onTrackerDraftChange,
@@ -1458,6 +1513,7 @@ function FleetGrid({
   onStatus: (id: string, status: TruckUnit["status"]) => void;
   onDriverAssign: (truckId: string, driverName: string) => void;
   onDriverUnassign: (truckId: string) => void;
+  onEdit: (truck: TruckUnit) => void;
   onDelete: (truckId: string) => void;
   trackerDrafts: Record<string, TrackerDraft>;
   onTrackerDraftChange: (truckId: string, value: TrackerDraft) => void;
@@ -1480,9 +1536,15 @@ function FleetGrid({
             </div>
             <h2 className="text-sm font-semibold text-slate-100">{truck.id}</h2>
             <p className="mt-2 text-xs text-slate-500">{truck.equipment} / {truck.location}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500">
+              <InfoPill label="Min RPM" value={truck.minRpm ? `$${truck.minRpm.toFixed(2)}` : "not set"} />
+              <InfoPill label="Deadhead" value={truck.maxDeadheadMiles ? `${truck.maxDeadheadMiles} mi` : "not set"} />
+              <InfoPill label="Max weight" value={truck.maxWeight ? `${truck.maxWeight.toLocaleString()} lb` : "not set"} />
+              <InfoPill label="Available" value={truck.availableFrom ?? "not set"} />
+            </div>
             <div className="mt-3 border border-cyan-300/15 bg-cyan-300/[0.06] p-3 text-xs">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-cyan-100">Tracker location</span>
+                <span className="font-semibold text-cyan-100">Search defaults</span>
                 <span className="font-mono text-slate-400">{formatTrackerTime(truck.trackerUpdatedAt)}</span>
               </div>
               <div className="mt-2 text-slate-300">
@@ -1490,6 +1552,7 @@ function FleetGrid({
                 {truck.trackerStateCode ? `, ${truck.trackerStateCode}` : ""}
               </div>
               <div className="mt-1 text-slate-500">{truck.trackerNote || (trackerState === "moving" ? "Moving" : "Stopped")}</div>
+              <div className="mt-2 text-slate-500">Sources: {truck.preferredBrokerSources?.join(", ") || "not set"}</div>
             </div>
             <p className="mt-3 text-xs text-slate-500">Linked driver: {truck.driver}</p>
             <label className="mt-3 block text-xs text-slate-500">
@@ -1534,9 +1597,14 @@ function FleetGrid({
               </button>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => onEdit(truck)} className="border border-violet-300/20 bg-violet-400/10 px-2 py-1.5 text-xs text-violet-100">
+                Edit
+              </button>
               <button type="button" onClick={() => onDriverUnassign(truck.id)} className="border border-cyan-300/20 bg-cyan-300/10 px-2 py-1.5 text-xs text-cyan-100">
                 Unassign
               </button>
+            </div>
+            <div className="mt-2 grid grid-cols-1 gap-2">
               <button type="button" onClick={() => onDelete(truck.id)} className="border border-red-400/20 bg-red-400/10 px-2 py-1.5 text-xs text-red-200">
                 Delete
               </button>
@@ -1594,12 +1662,16 @@ function AddDriverModal({
 
 function AddTruckModal({
   draft,
+  drivers,
+  mode,
   onDraftChange,
   onClose,
   onSave,
   saving = false
 }: {
   draft: TruckDraft;
+  drivers: DriverUnit[];
+  mode: "create" | "edit";
   onDraftChange: (value: TruckDraft) => void;
   onClose: () => void;
   onSave: () => void;
@@ -1607,23 +1679,55 @@ function AddTruckModal({
 }) {
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-black/75 px-4">
-      <section className="w-full max-w-[560px] border border-white/[0.12] bg-terminal-950 p-4 shadow-2xl shadow-black/70">
+      <section className="w-full max-w-[760px] border border-white/[0.12] bg-terminal-950 p-4 shadow-2xl shadow-black/70">
         <div className="mb-4 flex items-start justify-between gap-3 border-b border-white/[0.08] pb-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-100">Add Trailer</h2>
-            <p className="mt-1 text-sm text-slate-500">Create a trailer/truck unit and link a driver afterwards.</p>
+            <h2 className="text-lg font-semibold text-slate-100">{mode === "edit" ? "Edit Trailer" : "Add Trailer"}</h2>
+            <p className="mt-1 text-sm text-slate-500">Store truck defaults for later one-click search setup.</p>
           </div>
           <IconButton label="Close add trailer" className="h-9 w-9" onClick={onClose}>
             <X className="h-4 w-4" />
           </IconButton>
         </div>
-        <FormInput label="Trailer / Unit ID" value={draft.id} onChange={(id) => onDraftChange({ ...draft, id })} placeholder="Unit 552" />
-        <FormInput label="Equipment" value={draft.equipment} onChange={(equipment) => onDraftChange({ ...draft, equipment })} placeholder="Dry Van" />
-        <FormInput label="Location" value={draft.location} onChange={(location) => onDraftChange({ ...draft, location })} placeholder="Atlanta, GA" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <FormInput label="Trailer / Unit ID" value={draft.id} onChange={(id) => onDraftChange({ ...draft, id })} placeholder="Unit 552" />
+          <label className="mt-3 block text-xs text-slate-500">
+            Driver
+            <select
+              value={draft.currentDriverId}
+              onChange={(event) => onDraftChange({ ...draft, currentDriverId: event.target.value })}
+              className="mt-1 h-9 w-full border border-white/[0.08] bg-[#050b1a] px-3 text-sm text-slate-200 outline-none focus:border-cyan-300/35"
+            >
+              <option value="">Unassigned</option>
+              {drivers.map((driver) => (
+                <option key={driver.id ?? driver.name} value={driver.id ?? ""}>
+                  {driver.name} / {driver.status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <FormInput label="Equipment type" value={draft.equipment} onChange={(equipment) => onDraftChange({ ...draft, equipment })} placeholder="dry_van" />
+          <FormInput label="Status" value={draft.status} onChange={(status) => onDraftChange({ ...draft, status })} placeholder="available" />
+          <FormInput label="Current location" value={draft.location} onChange={(location) => onDraftChange({ ...draft, location })} placeholder="Atlanta, GA" />
+          <FormInput label="Available from" value={draft.availableFrom} onChange={(availableFrom) => onDraftChange({ ...draft, availableFrom })} placeholder="2026-05-27" />
+          <FormInput label="Max deadhead miles" value={draft.maxDeadheadMiles} onChange={(maxDeadheadMiles) => onDraftChange({ ...draft, maxDeadheadMiles })} placeholder="150" />
+          <FormInput label="Minimum RPM" value={draft.minRpm} onChange={(minRpm) => onDraftChange({ ...draft, minRpm })} placeholder="2.35" />
+          <FormInput label="Max weight" value={draft.maxWeight} onChange={(maxWeight) => onDraftChange({ ...draft, maxWeight })} placeholder="42000" />
+          <FormInput label="Preferred broker sources" value={draft.preferredBrokerSources} onChange={(preferredBrokerSources) => onDraftChange({ ...draft, preferredBrokerSources })} placeholder="DAT, Truckstop, Direct" />
+        </div>
+        <label className="mt-3 block text-xs text-slate-500">
+          Notes
+          <textarea
+            value={draft.notes}
+            onChange={(event) => onDraftChange({ ...draft, notes: event.target.value })}
+            className="mt-1 min-h-20 w-full border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-300/35"
+            placeholder="Search notes, driver instructions, lane preferences..."
+          />
+        </label>
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="h-9 border border-white/[0.08] bg-white/[0.035] px-4 text-sm text-slate-300">Cancel</button>
           <button type="button" onClick={onSave} disabled={saving} className="h-9 border border-cyan-300/25 bg-cyan-300/10 px-4 text-sm text-cyan-100 disabled:cursor-wait disabled:opacity-60">
-            {saving ? "Creating..." : "Create Trailer"}
+            {saving ? "Saving..." : mode === "edit" ? "Save Trailer" : "Create Trailer"}
           </button>
         </div>
       </section>
@@ -2067,6 +2171,15 @@ function InfoLine({ label, value }: { label: string; value: string }) {
   );
 }
 
+function InfoPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-white/[0.08] bg-white/[0.025] p-2">
+      <div className="text-[10px] uppercase tracking-[0.12em] text-slate-600">{label}</div>
+      <div className="mt-1 font-mono text-xs text-slate-300">{value}</div>
+    </div>
+  );
+}
+
 function average(values: number[]) {
   if (values.length === 0) {
     return 0;
@@ -2122,12 +2235,77 @@ function truckToUnit(truck: BackendTruck): TruckUnit {
     id: truck.truck_id,
     backendId: truck.id,
     equipment: truck.equipment_type ?? "Equipment not set",
-    location: truck.notes ?? "Location not set",
+    location: truck.current_location ?? "Location not set",
     status: truck.status,
     driver: driverName || "Unassigned",
     currentDriverId: truck.current_driver_id ?? null,
+    availableFrom: truck.available_from ?? null,
+    maxDeadheadMiles: truck.max_deadhead_miles ?? null,
+    minRpm: truck.min_rpm ?? null,
+    maxWeight: truck.max_weight ?? null,
+    preferredBrokerSources: truck.preferred_broker_sources ?? [],
+    notes: truck.notes ?? null,
     trackerState: truck.status === "moving" ? "moving" : truck.status === "stopped" ? "stopped" : undefined
   };
+}
+
+function truckUnitToDraft(truck: TruckUnit): TruckDraft {
+  return {
+    id: truck.id,
+    currentDriverId: truck.currentDriverId ? String(truck.currentDriverId) : "",
+    equipment: truck.equipment === "Equipment not set" ? "" : truck.equipment,
+    status: truck.status,
+    location: truck.location === "Location not set" ? "" : truck.location,
+    availableFrom: truck.availableFrom ?? "",
+    maxDeadheadMiles: truck.maxDeadheadMiles ? String(truck.maxDeadheadMiles) : "",
+    minRpm: truck.minRpm ? String(truck.minRpm) : "",
+    maxWeight: truck.maxWeight ? String(truck.maxWeight) : "",
+    preferredBrokerSources: truck.preferredBrokerSources?.join(", ") ?? "",
+    notes: truck.notes ?? ""
+  };
+}
+
+function truckDraftToPayload(draft: TruckDraft) {
+  return {
+    truck_id: draft.id.trim(),
+    current_driver_id: draft.currentDriverId ? Number(draft.currentDriverId) : null,
+    equipment_type: draft.equipment.trim() || null,
+    status: draft.status.trim() || "available",
+    current_location: draft.location.trim() || null,
+    available_from: draft.availableFrom.trim() || null,
+    max_deadhead_miles: parseOptionalInt(draft.maxDeadheadMiles),
+    min_rpm: parseOptionalFloat(draft.minRpm),
+    max_weight: parseOptionalInt(draft.maxWeight),
+    preferred_broker_sources: splitSources(draft.preferredBrokerSources),
+    notes: draft.notes.trim() || null
+  };
+}
+
+function parseOptionalInt(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOptionalFloat(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function splitSources(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function driverToUnit(driver: Driver, trucks: BackendTruck[] = []): DriverUnit {
