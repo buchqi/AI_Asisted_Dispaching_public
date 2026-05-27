@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* The product is designed as a dark-mode first operational terminal. */
+:root {
+  color-scheme: dark;
+}
+
+/* Predictable sizing makes dense table layouts easier to control. */
+* {
+  box-sizing: border-box;
+}
+
+/* Base page background matches the terminal design tokens. */
+html,
+body {
+  min-height: 100%;
+  background: #050b1a;
+}
+
+/* Global body text color and tabular number support. */
+body {
+  margin: 0;
+  color: #e5edf8;
+  font-feature-settings: "tnum";
+}
+
+/* Form controls inherit the app typography. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* Selection color matches the violet accent system. */
+::selection {
+  background: rgba(139, 92, 246, 0.35);
+}
+
+/* Custom scrollbars help the app feel integrated on large data surfaces. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #071226;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1f2d4f;
+  border: 2px solid #071226;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #33476f;
+}
