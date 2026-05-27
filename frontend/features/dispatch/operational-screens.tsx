@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Bell,
   Building2,
@@ -25,10 +26,15 @@ import {
   X
 } from "lucide-react";
 import { BrokerProfile, FreightLoad } from "@/types/load";
+import { driversApi } from "@/api/drivers-api";
+import { trucksApi } from "@/api/trucks-api";
 import { Badge } from "@/components/ui/badge";
 import { IconButton } from "@/components/ui/icon-button";
 import { cn, formatCurrency } from "@/components/ui/utils";
+import { useCompanyStore } from "@/store/company-store";
 import { useWorkspaceStore, type WorkspacePage } from "@/store/workspace-store";
+import { Driver } from "@/types/drivers";
+import { Truck as BackendTruck } from "@/types/trucks";
 import {
   type BrokerWorkflow,
   type CompletionDraft,
@@ -746,15 +752,29 @@ export function CompaniesPage() {
 }
 
 export function TrucksPage() {
+  const router = useRouter();
   const globalSearch = useWorkspaceStore((state) => state.globalSearch);
-  const [trucks, setTrucks] = useState(() => initialTrucks);
-  const [drivers, setDrivers] = useState(() => initialDrivers);
+  const activeCompanyId = useCompanyStore((state) => state.activeCompanyId);
+  const [trucks, setTrucks] = useState<TruckUnit[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [draft, setDraft] = useState<TruckDraft>(emptyTruckDraft);
   const [trackerDrafts, setTrackerDrafts] = useState<Record<string, TrackerDraft>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const available = trucks.filter((truck) => truck.status === "available").length;
   const moving = trucks.filter((truck) => getTrackerState(truck) === "moving").length;
   const stopped = trucks.filter((truck) => getTrackerState(truck) === "stopped").length;
+
+  useEffect(() => {
+    if (!activeCompanyId) {
+      router.replace("/companies");
+      return;
+    }
+
+    loadFleet(activeCompanyId);
+  }, [activeCompanyId, router]);
+
   const visibleTrucks = useMemo(() => {
     const normalized = globalSearch.trim().toLowerCase();
     if (!normalized) {
@@ -781,27 +801,123 @@ export function TrucksPage() {
     });
   }, [globalSearch, trucks]);
 
-  const createTruck = () => {
-    // TODO: Create trucks through FastAPI.
-    setDraft(emptyTruckDraft);
-    setAddOpen(false);
+  const createTruck = async () => {
+    if (!activeCompanyId) {
+      router.replace("/companies");
+      return;
+    }
+
+    const truckId = draft.id.trim();
+    if (!truckId) {
+      setError("Trailer / Unit ID is required.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      await trucksApi.createTruck(activeCompanyId, {
+        truck_id: truckId,
+        equipment_type: draft.equipment.trim() || null,
+        status: "available",
+        notes: draft.location.trim() || null
+      });
+      setDraft(emptyTruckDraft);
+      setAddOpen(false);
+      await loadFleet(activeCompanyId);
+    } catch (requestError) {
+      setError(getRequestMessage(requestError, "Truck request failed."));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const assignDriverToTruck = (truckId: string, driverName: string) => {
-    // TODO: Assign drivers to trucks through FastAPI.
+  const assignDriverToTruck = async () => {
+    // TODO: Reconnect truck assignment from a dedicated workflow after driver selection is finalized.
   };
 
-  const unassignTruckDriver = (truckId: string) => {
-    // TODO: Unassign drivers through FastAPI.
+  const unassignTruckDriver = async () => {
+    // TODO: Reconnect truck unassignment from a dedicated workflow after driver selection is finalized.
   };
 
-  const deleteTruck = (truckId: string) => {
-    // TODO: Delete trucks through FastAPI.
+  const deleteTruck = async (truckId: string) => {
+    if (!activeCompanyId) {
+      return;
+    }
+
+    const truck = trucks.find((item) => item.id === truckId);
+    if (!truck?.backendId) {
+      return;
+    }
+
+    setError("");
+    try {
+      await trucksApi.updateTruck(activeCompanyId, truck.backendId, { status: "inactive" });
+      await loadFleet(activeCompanyId);
+    } catch (requestError) {
+      setError(getRequestMessage(requestError, "Truck update failed."));
+    }
   };
 
-  const updateTracker = (truckId: string) => {
-    // TODO: Update tracker state through FastAPI.
+  const updateTracker = async (truckId: string) => {
+    if (!activeCompanyId) {
+      return;
+    }
+
+    const truck = trucks.find((item) => item.id === truckId);
+    if (!truck?.backendId) {
+      return;
+    }
+
+    const draft = trackerDrafts[truckId] ?? trackerDraftFromTruck(truck);
+    const location = [draft.trackerCity.trim(), draft.trackerStateCode.trim()].filter(Boolean).join(", ");
+
+    setError("");
+    try {
+      await trucksApi.updateTruck(activeCompanyId, truck.backendId, {
+        status: draft.trackerState,
+        notes: [location, draft.trackerNote.trim()].filter(Boolean).join(" / ") || null
+      });
+      await loadFleet(activeCompanyId);
+    } catch (requestError) {
+      setError(getRequestMessage(requestError, "Truck update failed."));
+    }
   };
+
+  const updateTruckStatus = async (truckId: string, status: string) => {
+    if (!activeCompanyId) {
+      return;
+    }
+
+    const truck = trucks.find((item) => item.id === truckId);
+    if (!truck?.backendId) {
+      return;
+    }
+
+    setError("");
+    try {
+      await trucksApi.updateTruck(activeCompanyId, truck.backendId, { status });
+      await loadFleet(activeCompanyId);
+    } catch (requestError) {
+      setError(getRequestMessage(requestError, "Truck status update failed."));
+    }
+  };
+
+  async function loadFleet(companyId: number) {
+    setLoading(true);
+    setError("");
+
+    try {
+      const truckItems = await trucksApi.listTrucks(companyId);
+      setTrucks(truckItems.map(truckToUnit));
+    } catch (requestError) {
+      setTrucks([]);
+      setError(getRequestMessage(requestError, "Fleet request failed."));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <PageFrame
@@ -815,12 +931,13 @@ export function TrucksPage() {
       ]}
       actions={<IconButton label="Add trailer" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /></IconButton>}
     >
+      {error ? <div className="mb-4 border border-red-400/25 bg-red-400/10 p-3 text-sm text-red-200">{error}</div> : null}
+      {loading ? <div className="border border-white/[0.08] bg-white/[0.025] p-5 text-sm text-slate-500">Loading trucks...</div> : null}
+      {!loading && visibleTrucks.length === 0 ? <div className="border border-white/[0.08] bg-white/[0.025] p-5 text-sm text-slate-500">No trucks created for this company yet.</div> : null}
       <FleetGrid
         items={visibleTrucks}
-        drivers={drivers}
-        onStatus={(id, status) => {
-          // TODO: Update truck status through FastAPI.
-        }}
+        drivers={[]}
+        onStatus={updateTruckStatus}
         onDriverAssign={assignDriverToTruck}
         onDriverUnassign={unassignTruckDriver}
         onDelete={deleteTruck}
@@ -834,6 +951,7 @@ export function TrucksPage() {
           onDraftChange={setDraft}
           onClose={() => setAddOpen(false)}
           onSave={createTruck}
+          saving={saving}
         />
       ) : null}
     </PageFrame>
@@ -841,17 +959,32 @@ export function TrucksPage() {
 }
 
 export function DriversPage() {
+  const router = useRouter();
   const globalSearch = useWorkspaceStore((state) => state.globalSearch);
-  const [drivers, setDrivers] = useState(() => initialDrivers);
-  const [trucks, setTrucks] = useState(() => initialTrucks);
+  const activeCompanyId = useCompanyStore((state) => state.activeCompanyId);
+  const [drivers, setDrivers] = useState<DriverUnit[]>([]);
+  const [trucks, setTrucks] = useState<TruckUnit[]>([]);
   const [assignments] = useState<LoadAssignment[]>([]);
   const [query, setQuery] = useState("");
-  const [selectedDriver, setSelectedDriver] = useState<DriverUnit>(initialDrivers[0]);
+  const [selectedDriver, setSelectedDriver] = useState<DriverUnit | null>(null);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [draft, setDraft] = useState<DriverDraft>(emptyDriverDraft);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const activeAssignments = assignments.filter((assignment) => assignment.status === "assigned");
   const completedAssignments = assignments.filter((assignment) => assignment.status === "completed");
+
+  useEffect(() => {
+    if (!activeCompanyId) {
+      router.replace("/companies");
+      return;
+    }
+
+    loadDriverPage(activeCompanyId);
+  }, [activeCompanyId, router]);
+
   const visibleDrivers = useMemo(() => {
     const normalized = (query || globalSearch).trim().toLowerCase();
 
@@ -880,15 +1013,87 @@ export function DriversPage() {
     });
   }, [activeAssignments, drivers, globalSearch, query]);
 
-  const createDriver = () => {
-    // TODO: Create drivers through FastAPI.
-    setDraft(emptyDriverDraft);
-    setAddOpen(false);
+  const createDriver = async () => {
+    if (!activeCompanyId) {
+      router.replace("/companies");
+      return;
+    }
+
+    const { firstName, lastName } = splitDriverName(draft.name);
+    if (!firstName || !lastName) {
+      setError("Driver first and last name are required.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      await driversApi.createDriver(activeCompanyId, {
+        first_name: firstName,
+        last_name: lastName,
+        phone: draft.phone.trim() || null,
+        email: draft.email.trim() || null,
+        home_location: draft.location.trim() || null,
+        preferences: draft.homeTerminal.trim() || null,
+        notes: draft.license.trim() || null
+      });
+      setDraft(emptyDriverDraft);
+      setAddOpen(false);
+      await loadDriverPage(activeCompanyId);
+    } catch (requestError) {
+      setError(getRequestMessage(requestError, "Driver request failed."));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const deleteDriver = (driverName: string) => {
-    // TODO: Delete drivers through FastAPI.
+  const updateDriverStatus = async (driver: DriverUnit, status: string) => {
+    if (!activeCompanyId || !driver.id) {
+      return;
+    }
+
+    setError("");
+    try {
+      await driversApi.updateDriver(activeCompanyId, driver.id, { status });
+      await loadDriverPage(activeCompanyId);
+    } catch (requestError) {
+      setError(getRequestMessage(requestError, "Driver status update failed."));
+    }
   };
+
+  const deleteDriver = async (driverName: string) => {
+    const driver = drivers.find((item) => item.name === driverName);
+    if (!driver) {
+      return;
+    }
+
+    await updateDriverStatus(driver, "inactive");
+  };
+
+  async function loadDriverPage(companyId: number) {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [driverItems, truckItems] = await Promise.all([
+        driversApi.listDrivers(companyId),
+        trucksApi.listTrucks(companyId)
+      ]);
+      const driverUnits = driverItems.map((driver) => driverToUnit(driver, truckItems));
+      const truckUnits = truckItems.map(truckToUnit);
+      setDrivers(driverUnits);
+      setTrucks(truckUnits);
+      setSelectedDriver((current) => current ? driverUnits.find((driver) => driver.id === current.id) ?? null : driverUnits[0] ?? null);
+    } catch (requestError) {
+      setDrivers([]);
+      setTrucks([]);
+      setSelectedDriver(null);
+      setError(getRequestMessage(requestError, "Driver request failed."));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <PageFrame
@@ -902,6 +1107,7 @@ export function DriversPage() {
       ]}
       actions={<IconButton label="Add driver" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /></IconButton>}
     >
+      {error ? <div className="mb-4 border border-red-400/25 bg-red-400/10 p-3 text-sm text-red-200">{error}</div> : null}
       <div className="border border-white/[0.08] bg-white/[0.025] p-3">
         <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
           <Search className="h-4 w-4 text-cyan-200" />
@@ -914,9 +1120,11 @@ export function DriversPage() {
         />
       </div>
 
+      {loading ? <div className="mt-4 border border-white/[0.08] bg-white/[0.025] p-5 text-sm text-slate-500">Loading drivers...</div> : null}
+      {!loading && visibleDrivers.length === 0 ? <div className="mt-4 border border-white/[0.08] bg-white/[0.025] p-5 text-sm text-slate-500">No drivers created for this company yet.</div> : null}
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {visibleDrivers.map((driver) => (
-          <section key={driver.name} className={cn("border border-white/[0.08] bg-white/[0.025] p-4", analyticsOpen && selectedDriver.name === driver.name && "border-violet-300/35 bg-violet-400/[0.08]")}>
+          <section key={driver.name} className={cn("border border-white/[0.08] bg-white/[0.025] p-4", analyticsOpen && selectedDriver?.name === driver.name && "border-violet-300/35 bg-violet-400/[0.08]")}>
             {(() => {
               const activeAssignment = activeAssignments.find((assignment) => assignment.driverName === driver.name);
               const activeLoad = activeAssignment ? loads.find((load) => load.id === activeAssignment.loadId) : undefined;
@@ -926,7 +1134,7 @@ export function DriversPage() {
               return (
                 <>
             <div className="mb-3 flex items-center justify-between">
-              <Badge tone={effectiveStatus === "available" ? "green" : effectiveStatus === "assigned" || effectiveStatus === "driving" ? "cyan" : effectiveStatus === "calling" ? "amber" : "slate"}>{effectiveStatus}</Badge>
+              <Badge tone={effectiveStatus === "active" || effectiveStatus === "available" ? "green" : effectiveStatus === "assigned" || effectiveStatus === "driving" ? "cyan" : effectiveStatus === "calling" || effectiveStatus === "inactive" ? "amber" : "slate"}>{effectiveStatus}</Badge>
               <MapPin className="h-4 w-4 text-slate-500" />
             </div>
             <h2 className="whitespace-normal break-words text-base font-semibold leading-6 text-slate-100">{driver.name}</h2>
@@ -945,13 +1153,13 @@ export function DriversPage() {
               <div className="pt-1 text-emerald-300">Completed loads: {driverRecords.length}</div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              {(["available", "driving", "calling", "off"] as const).map((status) => (
+              {["active", "inactive"].map((status) => (
                 <button
                   key={status}
                   type="button"
                   disabled={Boolean(activeAssignment)}
                   onClick={() => {
-                    // TODO: Update driver status through FastAPI.
+                    updateDriverStatus(driver, status);
                   }}
                   className="border border-white/[0.08] bg-white/[0.035] px-2 py-1.5 text-xs text-slate-300 hover:border-cyan-300/25 disabled:cursor-not-allowed disabled:text-slate-600"
                 >
@@ -962,13 +1170,13 @@ export function DriversPage() {
             <button
               type="button"
               onClick={() => {
-                const isSameDriverOpen = analyticsOpen && selectedDriver.name === driver.name;
+                const isSameDriverOpen = analyticsOpen && selectedDriver?.name === driver.name;
                 setSelectedDriver(driver);
                 setAnalyticsOpen(!isSameDriverOpen);
               }}
               className="mt-3 h-9 w-full border border-cyan-300/25 bg-cyan-300/10 text-sm text-cyan-100"
             >
-              {analyticsOpen && selectedDriver.name === driver.name ? "Hide Analytics" : "Show Analytics"}
+              {analyticsOpen && selectedDriver?.name === driver.name ? "Hide Analytics" : "Show Analytics"}
             </button>
             <button
               type="button"
@@ -985,11 +1193,13 @@ export function DriversPage() {
         ))}
       </div>
       {analyticsOpen ? (
-        <DriverAnalyticsModal
-          driver={selectedDriver}
-          records={completedAssignments.filter((assignment) => assignment.driverName === selectedDriver.name)}
-          onClose={() => setAnalyticsOpen(false)}
-        />
+        selectedDriver ? (
+          <DriverAnalyticsModal
+            driver={selectedDriver}
+            records={completedAssignments.filter((assignment) => assignment.driverName === selectedDriver.name)}
+            onClose={() => setAnalyticsOpen(false)}
+          />
+        ) : null
       ) : null}
       {addOpen ? (
         <AddDriverModal
@@ -997,6 +1207,7 @@ export function DriversPage() {
           onDraftChange={setDraft}
           onClose={() => setAddOpen(false)}
           onSave={createDriver}
+          saving={saving}
         />
       ) : null}
     </PageFrame>
@@ -1341,12 +1552,14 @@ function AddDriverModal({
   draft,
   onDraftChange,
   onClose,
-  onSave
+  onSave,
+  saving = false
 }: {
   draft: DriverDraft;
   onDraftChange: (value: DriverDraft) => void;
   onClose: () => void;
   onSave: () => void;
+  saving?: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-black/75 px-4">
@@ -1354,7 +1567,7 @@ function AddDriverModal({
         <div className="mb-4 flex items-start justify-between gap-3 border-b border-white/[0.08] pb-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-100">Add Driver</h2>
-            <p className="mt-1 text-sm text-slate-500">Create a frontend driver profile that can be linked to trailers and loads.</p>
+            <p className="mt-1 text-sm text-slate-500">Create a company driver profile that can be linked to trailers and loads.</p>
           </div>
           <IconButton label="Close add driver" className="h-9 w-9" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -1370,7 +1583,9 @@ function AddDriverModal({
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="h-9 border border-white/[0.08] bg-white/[0.035] px-4 text-sm text-slate-300">Cancel</button>
-          <button type="button" onClick={onSave} className="h-9 border border-cyan-300/25 bg-cyan-300/10 px-4 text-sm text-cyan-100">Create Driver</button>
+          <button type="button" onClick={onSave} disabled={saving} className="h-9 border border-cyan-300/25 bg-cyan-300/10 px-4 text-sm text-cyan-100 disabled:cursor-wait disabled:opacity-60">
+            {saving ? "Creating..." : "Create Driver"}
+          </button>
         </div>
       </section>
     </div>
@@ -1381,12 +1596,14 @@ function AddTruckModal({
   draft,
   onDraftChange,
   onClose,
-  onSave
+  onSave,
+  saving = false
 }: {
   draft: TruckDraft;
   onDraftChange: (value: TruckDraft) => void;
   onClose: () => void;
   onSave: () => void;
+  saving?: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-black/75 px-4">
@@ -1405,7 +1622,9 @@ function AddTruckModal({
         <FormInput label="Location" value={draft.location} onChange={(location) => onDraftChange({ ...draft, location })} placeholder="Atlanta, GA" />
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="h-9 border border-white/[0.08] bg-white/[0.035] px-4 text-sm text-slate-300">Cancel</button>
-          <button type="button" onClick={onSave} className="h-9 border border-cyan-300/25 bg-cyan-300/10 px-4 text-sm text-cyan-100">Create Trailer</button>
+          <button type="button" onClick={onSave} disabled={saving} className="h-9 border border-cyan-300/25 bg-cyan-300/10 px-4 text-sm text-cyan-100 disabled:cursor-wait disabled:opacity-60">
+            {saving ? "Creating..." : "Create Trailer"}
+          </button>
         </div>
       </section>
     </div>
@@ -1623,7 +1842,7 @@ function DriverAnalyticsModal({ driver, records, onClose }: { driver: DriverUnit
             <p className="mt-1 text-sm text-slate-500">Daily and weekly driver performance snapshot.</p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge tone={driver.status === "available" ? "green" : driver.status === "driving" ? "cyan" : "amber"}>{driver.status}</Badge>
+            <Badge tone={driver.status === "active" || driver.status === "available" ? "green" : driver.status === "driving" ? "cyan" : "amber"}>{driver.status}</Badge>
             <IconButton label="Close analytics" className="h-9 w-9" onClick={onClose}>
               <X className="h-4 w-4" />
             </IconButton>
@@ -1894,6 +2113,63 @@ function formatTrackerTime(value?: number) {
   }
 
   return `${Math.round(minutes / 60)}h ago`;
+}
+
+function truckToUnit(truck: BackendTruck): TruckUnit {
+  const driverName = [truck.current_driver_name, truck.current_driver_surname].filter(Boolean).join(" ");
+
+  return {
+    id: truck.truck_id,
+    backendId: truck.id,
+    equipment: truck.equipment_type ?? "Equipment not set",
+    location: truck.notes ?? "Location not set",
+    status: truck.status,
+    driver: driverName || "Unassigned",
+    currentDriverId: truck.current_driver_id ?? null,
+    trackerState: truck.status === "moving" ? "moving" : truck.status === "stopped" ? "stopped" : undefined
+  };
+}
+
+function driverToUnit(driver: Driver, trucks: BackendTruck[] = []): DriverUnit {
+  const assignedTruck = trucks.find((truck) => truck.current_driver_id === driver.id);
+
+  return {
+    id: driver.id,
+    name: [driver.first_name, driver.last_name].filter(Boolean).join(" ") || `Driver ${driver.id}`,
+    firstName: driver.first_name,
+    lastName: driver.last_name,
+    phone: driver.phone ?? "Phone not set",
+    email: driver.email ?? "Email not set",
+    license: driver.notes ?? "License not set",
+    location: driver.home_location ?? "Location not set",
+    homeTerminal: driver.preferences ?? "Terminal not set",
+    status: driver.status,
+    truck: assignedTruck?.truck_id ?? "Unassigned",
+    loadsToday: 0,
+    completedToday: 0,
+    weeklyLoads: 0,
+    onTimeRate: 0,
+    avgRpm: 0
+  };
+}
+
+function splitDriverName(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const firstName = parts[0] ?? "";
+  const lastName = parts.slice(1).join(" ");
+
+  return {
+    firstName,
+    lastName
+  };
+}
+
+function getRequestMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 function buildSearchCenterResults(

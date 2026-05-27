@@ -16,10 +16,12 @@ export type SearchSession = {
 
 export type TruckUnit = {
   id: string;
+  backendId?: number;
   equipment: string;
   location: string;
-  status: "available" | "loaded" | "service";
+  status: string;
   driver: string;
+  currentDriverId?: number | null;
   trackerState?: "moving" | "stopped";
   trackerCity?: string;
   trackerStateCode?: string;
@@ -28,13 +30,16 @@ export type TruckUnit = {
 };
 
 export type DriverUnit = {
+  id?: number;
   name: string;
+  firstName?: string;
+  lastName?: string;
   phone: string;
   email: string;
   license: string;
   location: string;
   homeTerminal: string;
-  status: "available" | "driving" | "calling" | "off";
+  status: string;
   truck: string;
   loadsToday: number;
   completedToday: number;
