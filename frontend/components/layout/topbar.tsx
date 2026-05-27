@@ -1,75 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Bell, Clock3, Command, LockKeyhole, Navigation, Play, Plus, Radio, Route, Search, Settings, Truck, UserRound, X, Zap, type LucideIcon } from "lucide-react";
-import { mockBrokerProfiles, mockLoads } from "@/entities/load/mock-loads";
-import { FreightLoad } from "@/entities/load/types";
-import { readStoredJson } from "@/services/storage/persistence";
 import { Badge } from "@/components/ui/badge";
 import { IconButton } from "@/components/ui/icon-button";
+import { useAuthStore } from "@/store/auth-store";
+import { useCompanyStore } from "@/store/company-store";
 import { useWorkspaceStore, type WorkspacePage } from "@/store/workspace-store";
-
-type DriverUnit = {
-  name: string;
-  phone: string;
-  email: string;
-  license: string;
-  location: string;
-  homeTerminal: string;
-  status: "available" | "driving" | "calling" | "off";
-  truck: string;
-};
-
-type TruckUnit = {
-  id: string;
-  equipment: string;
-  location: string;
-  status: "available" | "loaded" | "service";
-  driver: string;
-};
-
-type LoadAssignment = {
-  id: string;
-  loadId: string;
-  driverName: string;
-  assignedAt: number;
-  status: "assigned" | "completed";
-  completedAt?: number;
-};
-
-type CommandResult = {
-  id: string;
-  title: string;
-  body: string;
-  meta: string;
-  tone: "green" | "cyan" | "amber" | "red" | "violet" | "slate";
-  icon: LucideIcon;
-  page: WorkspacePage;
-  query: string;
-  loadId?: string;
-};
-
-const driversStorageKey = "freight-command-drivers";
-const trucksStorageKey = "freight-command-trucks";
-const assignmentsStorageKey = "freight-command-load-assignments";
-
-const fallbackDrivers: DriverUnit[] = [
-  { name: "M. Carter", phone: "(404) 555-0194", email: "m.carter@fleet.local", license: "GA-CDL-8841", location: "Atlanta, GA", homeTerminal: "Atlanta Yard", status: "available", truck: "Unit 204" },
-  { name: "N. Patel", phone: "(214) 555-0148", email: "n.patel@fleet.local", license: "TX-CDL-2918", location: "Dallas, TX", homeTerminal: "Dallas Hub", status: "driving", truck: "Unit 318" },
-  { name: "D. Walker", phone: "(312) 555-0177", email: "d.walker@fleet.local", license: "IL-CDL-7710", location: "Chicago, IL", homeTerminal: "Chicago Lot", status: "calling", truck: "Unit 077" },
-  { name: "A. Ramos", phone: "(602) 555-0162", email: "a.ramos@fleet.local", license: "AZ-CDL-4402", location: "Phoenix, AZ", homeTerminal: "Phoenix Yard", status: "available", truck: "Unit 441" }
-];
-
-const fallbackTrucks: TruckUnit[] = [
-  { id: "Unit 204", equipment: "Dry Van", location: "Atlanta, GA", status: "available", driver: "M. Carter" },
-  { id: "Unit 318", equipment: "Reefer", location: "Dallas, TX", status: "loaded", driver: "N. Patel" },
-  { id: "Unit 077", equipment: "Flatbed", location: "Chicago, IL", status: "service", driver: "D. Walker" },
-  { id: "Unit 441", equipment: "Power Only", location: "Memphis, TN", status: "available", driver: "A. Ramos" }
-];
+import {
+  type CommandResult,
+  type DriverUnitSummary,
+  type LoadAssignmentSummary,
+  type TruckUnitSummary
+} from "@/types/workspace";
 
 // Topbar holds global search, realtime status, counters, notifications, and profile.
 // It should remain stable while the user switches between operational screens.
 export function Topbar() {
+  const router = useRouter();
   const [now, setNow] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -87,10 +36,13 @@ export function Topbar() {
   const markAllNotificationsRead = useWorkspaceStore((state) => state.markAllNotificationsRead);
   const focusLoad = useWorkspaceStore((state) => state.focusLoad);
   const unreadCount = notifications.filter((notification) => !notification.read).length;
-  const [dispatcherName, setDispatcherName] = useState("Dispatcher");
-  const [drivers, setDrivers] = useState<DriverUnit[]>(fallbackDrivers);
-  const [trucks, setTrucks] = useState<TruckUnit[]>(fallbackTrucks);
-  const [assignments, setAssignments] = useState<LoadAssignment[]>([]);
+  const user = useAuthStore((state) => state.user);
+  const logoutAuth = useAuthStore((state) => state.logout);
+  const clearActiveCompany = useCompanyStore((state) => state.clearActiveCompany);
+  const dispatcherName = [user?.first_name, user?.last_name].filter(Boolean).join(" ") || user?.email || "Dispatcher";
+  const [drivers] = useState<DriverUnitSummary[]>([]);
+  const [trucks] = useState<TruckUnitSummary[]>([]);
+  const [assignments] = useState<LoadAssignmentSummary[]>([]);
   const commandResults = useMemo(
     () => buildCommandResults(globalSearch, drivers, trucks, assignments),
     [assignments, drivers, globalSearch, trucks]
@@ -125,18 +77,11 @@ export function Topbar() {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    setDrivers(readStoredJson<DriverUnit[]>(driversStorageKey, fallbackDrivers));
-    setTrucks(readStoredJson<TruckUnit[]>(trucksStorageKey, fallbackTrucks));
-    setAssignments(readStoredJson<LoadAssignment[]>(assignmentsStorageKey, []));
-    const sessionId = window.localStorage.getItem("freight-command-auth-session");
-    const authUsers = readStoredJson<Array<{ id: string; name: string }>>("freight-command-auth-users", []);
-    setDispatcherName(authUsers.find((item) => item.id === sessionId)?.name ?? "Dispatcher");
-  }, [globalSearch]);
-
   const logout = () => {
-    window.localStorage.removeItem("freight-command-auth-session");
-    window.location.reload();
+    logoutAuth();
+    clearActiveCompany();
+    closeModal();
+    router.replace("/login");
   };
 
   // Global panels close with Escape and outside click.
@@ -258,7 +203,7 @@ export function Topbar() {
                   </button>
                 );
               }) : (
-                <div className="p-5 text-sm text-slate-500">No results. Try a load ID, driver name, trailer unit, broker, city, "stopped", or "in transit".</div>
+                <div className="p-5 text-sm text-slate-500">No results. FastAPI search is not connected yet.</div>
               )}
             </div>
           </div>
@@ -328,9 +273,8 @@ export function Topbar() {
                 <PanelAction
                   icon={Play}
                   title="Start Live Search"
-                  body="Creates a mock live search session."
+                  body="Ready for FastAPI search integration."
                   onClick={() => {
-                    pushToast({ title: "Live search started", body: "Mock worker is now streaming loads.", tone: "green" });
                     closeModal();
                   }}
                 />
@@ -420,14 +364,14 @@ export function Topbar() {
                 <PanelAction
                   icon={UserRound}
                   title="Switch status"
-                  body="Marks the dispatcher available in mock mode."
-                  onClick={() => pushToast({ title: "Status updated", body: "Dispatcher status set to available.", tone: "green" })}
+                  body="Ready for account status integration."
+                  onClick={closeModal}
                 />
                 <PanelAction
                   icon={Settings}
                   title="Profile settings"
-                  body="Profile settings panel opened."
-                  onClick={() => pushToast({ title: "Profile settings", body: "This window is ready for real account settings.", tone: "cyan" })}
+                  body="Ready for real account settings."
+                  onClick={closeModal}
                 />
                 <PanelAction
                   icon={LockKeyhole}
@@ -486,146 +430,8 @@ function TrackerStat({ label, value, tone }: { label: string; value: number; ton
   );
 }
 
-function buildCommandResults(query: string, drivers: DriverUnit[], trucks: TruckUnit[], assignments: LoadAssignment[]): CommandResult[] {
-  const normalized = query.trim().toLowerCase();
-  const activeAssignments = assignments.filter((assignment) => assignment.status === "assigned");
-  const completedAssignments = assignments.filter((assignment) => assignment.status === "completed");
-  const results: CommandResult[] = [];
-
-  const pushIfMatch = (result: CommandResult, haystack: string) => {
-    if (!normalized || haystack.toLowerCase().includes(normalized)) {
-      results.push(result);
-    }
-  };
-
-  const commands: CommandResult[] = [
-    {
-      id: "action-add-driver",
-      title: "Add driver",
-      body: "Open Drivers page and use the add driver workflow.",
-      meta: "action",
-      tone: "violet",
-      icon: Plus,
-      page: "drivers",
-      query: ""
-    },
-    {
-      id: "action-add-trailer",
-      title: "Add trailer",
-      body: "Open Trucks / Trailers page and create a new unit.",
-      meta: "action",
-      tone: "violet",
-      icon: Plus,
-      page: "trucks",
-      query: ""
-    },
-    {
-      id: "view-in-transit",
-      title: "Show trucks in transit",
-      body: "Loaded trucks and drivers with active assigned loads.",
-      meta: "tracker",
-      tone: "cyan",
-      icon: Navigation,
-      page: "trucks",
-      query: "loaded assigned in transit"
-    },
-    {
-      id: "view-stopped",
-      title: "Show stopped trucks",
-      body: "Service/stopped units that need dispatcher attention.",
-      meta: "tracker",
-      tone: "red",
-      icon: Truck,
-      page: "trucks",
-      query: "service stopped"
-    },
-    {
-      id: "view-assigned-loads",
-      title: "Show assigned loads",
-      body: "Open assignment board filtered around active driver-load work.",
-      meta: "loads",
-      tone: "amber",
-      icon: Command,
-      page: "assignments",
-      query: "assigned"
-    }
-  ];
-
-  commands.forEach((command) => pushIfMatch(command, `${command.title} ${command.body} ${command.meta}`));
-
-  mockLoads.slice(0, 80).forEach((load: FreightLoad) => {
-    const assignment = assignments.find((item) => item.loadId === load.id);
-    const state = assignment?.status ?? load.status;
-    pushIfMatch(
-      {
-        id: `load-${load.id}`,
-        title: `${load.id} / ${load.pickup} -> ${load.delivery}`,
-        body: `${load.broker} / ${load.equipment} / ${formatMoney(load.rate)} / ${assignment?.driverName ?? "unassigned"}`,
-        meta: state,
-        tone: state === "completed" ? "green" : state === "assigned" ? "amber" : load.hot ? "red" : "cyan",
-        icon: Route,
-        page: "live-loads",
-        query: load.id,
-        loadId: load.id
-      },
-      `${load.id} ${load.pickup} ${load.delivery} ${load.broker} ${load.company} ${load.phone} ${load.equipment} ${state} ${assignment?.driverName ?? ""}`
-    );
-  });
-
-  drivers.forEach((driver) => {
-    const activeAssignment = activeAssignments.find((assignment) => assignment.driverName === driver.name);
-    const completedCount = completedAssignments.filter((assignment) => assignment.driverName === driver.name).length;
-    const linkedTruck = trucks.find((truck) => truck.driver === driver.name);
-    pushIfMatch(
-      {
-        id: `driver-${driver.name}`,
-        title: driver.name,
-        body: `${driver.phone} / ${driver.location} / trailer ${linkedTruck?.id ?? driver.truck} / ${activeAssignment ? `active load ${activeAssignment.loadId}` : `${completedCount} completed loads`}`,
-        meta: activeAssignment ? "assigned" : driver.status,
-        tone: activeAssignment ? "cyan" : driver.status === "available" ? "green" : driver.status === "off" ? "slate" : "amber",
-        icon: UserRound,
-        page: "drivers",
-        query: driver.name
-      },
-      `${driver.name} ${driver.phone} ${driver.email} ${driver.license} ${driver.location} ${driver.homeTerminal} ${driver.status} ${linkedTruck?.id ?? driver.truck} ${activeAssignment?.loadId ?? ""}`
-    );
-  });
-
-  trucks.forEach((truck) => {
-    const activeAssignment = activeAssignments.find((assignment) => assignment.driverName === truck.driver);
-    const trackerState = truck.status === "service" ? "stopped" : activeAssignment || truck.status === "loaded" ? "in transit" : "available";
-    pushIfMatch(
-      {
-        id: `truck-${truck.id}`,
-        title: `${truck.id} / ${trackerState}`,
-        body: `${truck.equipment} / ${truck.location} / driver ${truck.driver}${activeAssignment ? ` / load ${activeAssignment.loadId}` : ""}`,
-        meta: trackerState,
-        tone: trackerState === "stopped" ? "red" : trackerState === "in transit" ? "cyan" : "green",
-        icon: Truck,
-        page: "trucks",
-        query: truck.id
-      },
-      `${truck.id} ${truck.equipment} ${truck.location} ${truck.status} ${truck.driver} ${trackerState} ${activeAssignment?.loadId ?? ""} stopped in transit tracker`
-    );
-  });
-
-  Object.values(mockBrokerProfiles).forEach((broker) => {
-    pushIfMatch(
-      {
-        id: `broker-${broker.broker}`,
-        title: broker.broker,
-        body: `${broker.company} / ${broker.phone} / score ${broker.score} / pays ${broker.daysToPay}d`,
-        meta: "broker",
-        tone: broker.score >= 84 ? "green" : "amber",
-        icon: Settings,
-        page: "brokers",
-        query: broker.broker
-      },
-      `${broker.broker} ${broker.company} ${broker.phone} ${broker.email}`
-    );
-  });
-
-  return results.slice(0, normalized ? 18 : 10);
+function buildCommandResults(query: string, drivers: DriverUnitSummary[], trucks: TruckUnitSummary[], assignments: LoadAssignmentSummary[]): CommandResult[] {
+  return [];
 }
 
 function formatMoney(value: number) {

@@ -43,6 +43,25 @@ class MembershipUpdate(BaseModel):
     status: str | None = None
 
 
+class MembershipUserResponse(BaseModel):
+    """
+    Basic user profile nested inside membership responses.
+
+    Sensitive fields such as password hashes and tokens are intentionally not
+    included here.
+    """
+
+    id: int
+    email: EmailStr
+    first_name: str
+    last_name: str
+    phone: str | None = None
+    timezone: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class MembershipResponse(BaseModel):
     """
     Response schema for company membership.
@@ -60,6 +79,7 @@ class MembershipResponse(BaseModel):
     company_id: int
     role: str
     status: str
+    user: MembershipUserResponse
 
     class Config:
         """

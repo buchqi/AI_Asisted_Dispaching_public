@@ -7,7 +7,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { useWorkspaceStore } from "@/store/workspace-store";
 
 // ToastViewport renders global action feedback.
-// This makes every clickable control feel alive even while the app uses mock data.
+// This keeps transient UI feedback from lingering on screen.
 export function ToastViewport() {
   const toasts = useWorkspaceStore((state) => state.toasts);
   const dismissToast = useWorkspaceStore((state) => state.dismissToast);

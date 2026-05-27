@@ -26,7 +26,7 @@ Company
 # instead of duplicating authorization checks.
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.user import User
 from app.models.company_membership import CompanyMembership
@@ -173,7 +173,11 @@ def invite_member(
         db.commit()
         db.refresh(existing_membership)
 
-        return existing_membership
+        return get_membership_with_user(
+            db=db,
+            membership_id=existing_membership.id,
+            company_id=company_id,
+        )
 
     new_membership = CompanyMembership(
         user_id=invited_user.id,
@@ -186,7 +190,11 @@ def invite_member(
     db.commit()
     db.refresh(new_membership)
 
-    return new_membership
+    return get_membership_with_user(
+        db=db,
+        membership_id=new_membership.id,
+        company_id=company_id,
+    )
 
 
 def list_company_members(
@@ -208,7 +216,11 @@ def list_company_members(
 
     return (
         db.query(CompanyMembership)
-        .filter(CompanyMembership.company_id == company_id)
+        .options(selectinload(CompanyMembership.user))
+        .filter(
+            CompanyMembership.company_id == company_id,
+            CompanyMembership.status == "active",
+        )
         .all()
     )
 
@@ -256,7 +268,11 @@ def update_membership(
     db.commit()
     db.refresh(membership)
 
-    return membership
+    return get_membership_with_user(
+        db=db,
+        membership_id=membership.id,
+        company_id=company_id,
+    )
 
 
 def remove_membership(
@@ -300,5 +316,37 @@ def remove_membership(
 
     db.commit()
     db.refresh(membership)
+
+    return get_membership_with_user(
+        db=db,
+        membership_id=membership.id,
+        company_id=company_id,
+    )
+
+
+def get_membership_with_user(
+    db: Session,
+    membership_id: int,
+    company_id: int,
+) -> CompanyMembership:
+    """
+    Load one membership with its related user for response serialization.
+    """
+
+    membership = (
+        db.query(CompanyMembership)
+        .options(selectinload(CompanyMembership.user))
+        .filter(
+            CompanyMembership.id == membership_id,
+            CompanyMembership.company_id == company_id,
+        )
+        .first()
+    )
+
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Membership not found",
+        )
 
     return membership

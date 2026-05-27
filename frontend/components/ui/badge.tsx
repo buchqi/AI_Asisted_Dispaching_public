@@ -1,4 +1,4 @@
-import { cn } from "@/shared/lib/utils";
+import { cn } from "@/components/ui/utils";
 
 // Small semantic color system for compact labels.
 type BadgeTone = "green" | "red" | "amber" | "cyan" | "violet" | "slate";

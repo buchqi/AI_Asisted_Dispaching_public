@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   Bell,
   Building2,
@@ -15,7 +16,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { useWorkspaceStore, type WorkspacePage } from "@/store/workspace-store";
-import { cn } from "@/shared/lib/utils";
+import { cn } from "@/components/ui/utils";
 
 // Navigation items for the left rail.
 // The labels are used for tooltips and accessibility.
@@ -32,6 +33,20 @@ const navItems: Array<{ label: string; page: WorkspacePage; icon: LucideIcon }> 
   { label: "Notifications", page: "notifications", icon: Bell },
   { label: "Settings", page: "settings", icon: Settings }
 ];
+
+const pageHrefs: Record<WorkspacePage, string> = {
+  dispatch: "/dispatch",
+  "live-loads": "/loads",
+  assignments: "/dispatch/assignments",
+  "search-sessions": "/search",
+  brokers: "/companies/brokers",
+  companies: "/companies",
+  trucks: "/trucks",
+  drivers: "/drivers",
+  analytics: "/dispatch/analytics",
+  notifications: "/dispatch/notifications",
+  settings: "/settings"
+};
 
 // The sidebar is intentionally icon-first and narrow.
 // Dispatchers often use large tables, so horizontal space is valuable.
@@ -51,9 +66,9 @@ export function Sidebar() {
         {navItems.map((item) => {
           const Icon = item.icon;
           return (
-            <button
+            <Link
               key={item.label}
-              type="button"
+              href={pageHrefs[item.page]}
               aria-label={item.label}
               title={item.label}
               onClick={() => setActivePage(item.page)}
@@ -68,7 +83,7 @@ export function Sidebar() {
               <span className="whitespace-nowrap text-sm font-medium opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100">
                 {item.label}
               </span>
-            </button>
+            </Link>
           );
         })}
       </nav>

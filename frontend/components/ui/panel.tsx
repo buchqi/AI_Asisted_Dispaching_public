@@ -1,4 +1,4 @@
-import { cn } from "@/shared/lib/utils";
+import { cn } from "@/components/ui/utils";
 
 // Generic panel surface for future dashboard widgets.
 // Kept minimal so it can be reused without forcing one visual layout.

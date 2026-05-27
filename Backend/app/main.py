@@ -24,6 +24,8 @@ from app.api.v1.websockets import router as websockets_router
 from app.api.v1.dispatcher_actions import router as dispatcher_actions_router
 from app.api.v1.bookings import router as bookings_router
 from app.api.v1.scoring import router as scoring_router
+from fastapi.middleware.cors import CORSMiddleware
+
 
 
 """
@@ -34,6 +36,18 @@ app = FastAPI(
     title="AI-Assisted Dispatching API",
     version="0.1.0",
     description="Backend API for AI-assisted dispatching MVP",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

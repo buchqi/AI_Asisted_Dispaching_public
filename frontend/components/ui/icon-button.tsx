@@ -1,4 +1,4 @@
-import { cn } from "@/shared/lib/utils";
+import { cn } from "@/components/ui/utils";
 
 // Reusable icon-only button.
 // The label is required for accessibility and also appears as a tooltip.

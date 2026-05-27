@@ -1,6 +1,5 @@
 import { create } from "zustand";
-import { FreightLoad, LoadDecision } from "@/entities/load/types";
-import { readStoredJson, writeStoredJson } from "@/services/storage/persistence";
+import { FreightLoad, LoadDecision } from "@/types/load";
 
 export type WorkspacePage =
   | "dispatch"
@@ -35,8 +34,6 @@ export type AppNotification = {
   read: boolean;
   createdAt: number;
 };
-
-const loadDecisionsStorageKey = "freight-command-load-decisions";
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -121,7 +118,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   activeSearch: "Southeast Hot Lanes",
   // Reserved for future multi-monitor/fullscreen table controls.
   fullscreenTable: false,
-  // Global search filters the mock table and is ready to become API query state.
+  // Global search text is ready to become API query state.
   globalSearch: "",
   laneFilter: "All",
   equipmentFilter: "All",
@@ -143,11 +140,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   // Load that should be focused after notification navigation.
   focusedLoadId: null,
   // Frontend-only workflow state for load actions.
-  claimedLoadIds: readStoredJson<string[]>("freight-command-claimed-loads", []),
-  watchedLoadIds: readStoredJson<string[]>("freight-command-watched-loads", []),
-  hiddenLoadIds: readStoredJson<string[]>("freight-command-hidden-loads", []),
-  calledLoadIds: readStoredJson<string[]>("freight-command-called-loads", []),
-  loadDecisions: readStoredJson<Record<string, LoadDecision>>(loadDecisionsStorageKey, {}),
+  claimedLoadIds: [],
+  watchedLoadIds: [],
+  hiddenLoadIds: [],
+  calledLoadIds: [],
+  loadDecisions: {},
   // Changes the current workspace screen.
   setActivePage: (page) => set({ activePage: page, drawerOpen: false, selectedLoadId: null, modal: null }),
   // Selecting a load also opens the intelligence drawer.
@@ -177,21 +174,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   // Filters Dispatch Workspace by dispatcher decision status.
   setDecisionFilter: (value) => set({ decisionFilter: value }),
   // Saves current dispatch filters as a frontend preset.
-  saveFilterPreset: () =>
-    set((state) => {
-      writeStoredJson("freight-command-layout", {
-        laneFilter: state.laneFilter,
-        equipmentFilter: state.equipmentFilter,
-        minRpm: state.minRpm,
-        maxDeadhead: state.maxDeadhead,
-        minBrokerScore: state.minBrokerScore,
-        maxWeight: state.maxWeight,
-        activeLoadDate: state.activeLoadDate,
-        decisionFilter: state.decisionFilter,
-        savedAt: new Date().toISOString()
-      });
-      return {};
-    }),
+  saveFilterPreset: () => set({}),
   // Restores default operational filters.
   resetFilters: () => set({ globalSearch: "", laneFilter: "All", equipmentFilter: "All", minRpm: 2.35, maxDeadhead: 100, minBrokerScore: 0, maxWeight: 42000, activeLoadDate: todayKey(), decisionFilter: "All" }),
   // Opens one global modal/panel at a time.
@@ -204,32 +187,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   // Removes a toast.
   dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) })),
   // Adds a global new-load notification and mirrors it into toast feedback.
-  pushNotification: (notification) =>
-    set((state) => {
-      const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Date.now());
-      const createdAt = Date.now();
-      const appNotification: AppNotification = {
-        id,
-        createdAt,
-        read: false,
-        ...notification
-      };
-      const toastTone: ToastMessage["tone"] = "green";
-
-      return {
-        notifications: [appNotification, ...state.notifications].slice(0, 50),
-        toasts: [
-          {
-            id: `${id}-toast`,
-            createdAt,
-            title: notification.title,
-            body: notification.body,
-            tone: toastTone
-          },
-          ...state.toasts
-        ].slice(0, 3)
-      };
-    }),
+  pushNotification: () => set({}),
   // Marks one notification as read.
   markNotificationRead: (id) =>
     set((state) => ({
@@ -263,78 +221,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   // Clears one-time load focus after the page has consumed it.
   clearFocusedLoad: () => set({ focusedLoadId: null }),
   // Marks a load as claimed and stores it locally.
-  claimLoad: (loadId) =>
-    set((state) => {
-      const claimedLoadIds = Array.from(new Set([loadId, ...state.claimedLoadIds]));
-      writeStoredJson("freight-command-claimed-loads", claimedLoadIds);
-      return { claimedLoadIds };
-    }),
+  claimLoad: () => set({}),
   // Toggles a load watch state and stores it locally.
-  watchLoad: (loadId) =>
-    set((state) => {
-      const exists = state.watchedLoadIds.includes(loadId);
-      const watchedLoadIds = exists ? state.watchedLoadIds.filter((id) => id !== loadId) : [loadId, ...state.watchedLoadIds];
-      writeStoredJson("freight-command-watched-loads", watchedLoadIds);
-      return { watchedLoadIds };
-    }),
+  watchLoad: () => set({}),
   // Hides a load from Live Loads and stores it locally.
-  hideLoad: (loadId) =>
-    set((state) => {
-      const hiddenLoadIds = Array.from(new Set([loadId, ...state.hiddenLoadIds]));
-      writeStoredJson("freight-command-hidden-loads", hiddenLoadIds);
-      return { hiddenLoadIds };
-    }),
+  hideLoad: () => set({}),
   // Restores hidden loads in the frontend workflow.
-  restoreHiddenLoads: () =>
-    set(() => {
-      writeStoredJson("freight-command-hidden-loads", []);
-      return { hiddenLoadIds: [] };
-    }),
+  restoreHiddenLoads: () => set({ hiddenLoadIds: [] }),
   // Marks broker contact as called and stores it locally.
-  markLoadCalled: (loadId) =>
-    set((state) => {
-      const calledLoadIds = Array.from(new Set([loadId, ...state.calledLoadIds]));
-      writeStoredJson("freight-command-called-loads", calledLoadIds);
-      return { calledLoadIds };
-    }),
+  markLoadCalled: () => set({}),
   // Accepting a load moves it into the Live Loads workflow.
-  acceptLoad: (load) =>
-    set((state) => {
-      const loadDecisions: Record<string, LoadDecision> = {
-        ...state.loadDecisions,
-        [load.id]: {
-          loadId: load.id,
-          status: "accepted",
-          decidedAt: Date.now(),
-          load
-        }
-      };
-      writeStoredJson(loadDecisionsStorageKey, loadDecisions);
-      return { loadDecisions };
-    }),
+  acceptLoad: () => set({}),
   // Rejected loads remain visible in Dispatch Workspace with a clear status.
-  rejectLoad: (load, reason, note) =>
-    set((state) => {
-      const loadDecisions: Record<string, LoadDecision> = {
-        ...state.loadDecisions,
-        [load.id]: {
-          loadId: load.id,
-          status: "rejected",
-          reason,
-          note,
-          decidedAt: Date.now(),
-          load
-        }
-      };
-      writeStoredJson(loadDecisionsStorageKey, loadDecisions);
-      return { loadDecisions };
-    }),
+  rejectLoad: () => set({}),
   // Reopen removes the decision so the dispatcher can decide again.
-  reopenLoad: (loadId) =>
-    set((state) => {
-      const loadDecisions = { ...state.loadDecisions };
-      delete loadDecisions[loadId];
-      writeStoredJson(loadDecisionsStorageKey, loadDecisions);
-      return { loadDecisions };
-    })
+  reopenLoad: () => set({})
 }));
