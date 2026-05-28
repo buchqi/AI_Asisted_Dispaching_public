@@ -58,6 +58,7 @@ class ScoringResultResponse(BaseModel):
     truck_search_session_id: int | None
     score: float
     breakdown: dict[str, Any] | None
+    action_state: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 

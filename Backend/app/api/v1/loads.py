@@ -82,6 +82,8 @@ def list_truck_search_session_loads_endpoint(
                 "rejected": False,
                 "favorite": False,
                 "contacted": False,
+                "latest_action_type": None,
+                "active_action_type": None,
             },
         )
         score = scores.get(snapshot.id)

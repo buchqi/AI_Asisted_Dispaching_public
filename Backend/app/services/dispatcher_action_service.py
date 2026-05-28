@@ -5,8 +5,11 @@ Dispatchers can act only on loads from truck search sessions they own.
 Every action is stored as history instead of overwriting prior actions.
 """
 
+from typing import Any
+
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.permissions import require_truck_search_session_owner
 from app.models.dispatcher_action import DispatcherAction
@@ -19,6 +22,12 @@ VALID_ACTION_TYPES = {
     "save",
     "reject",
     "favorite",
+    "contacted",
+    "cleared",
+}
+
+LIVE_LOAD_ACTION_TYPES = {
+    "save",
     "contacted",
 }
 
@@ -113,13 +122,54 @@ def create_dispatcher_action(
     return action
 
 
+def list_live_load_actions(
+    db: Session,
+    *,
+    company_id: int,
+    current_user: User,
+) -> list[DispatcherAction]:
+    """
+    Return latest saved/contacted dispatcher actions for the work queue.
+    """
+
+    latest_action_ids = (
+        db.query(func.max(DispatcherAction.id).label("id"))
+        .filter(
+            DispatcherAction.company_id == company_id,
+            DispatcherAction.dispatcher_user_id == current_user.id,
+        )
+        .group_by(
+            DispatcherAction.truck_search_session_id,
+            DispatcherAction.load_id,
+        )
+        .subquery()
+    )
+
+    return (
+        db.query(DispatcherAction)
+        .options(
+            joinedload(DispatcherAction.load),
+            joinedload(DispatcherAction.load_snapshot).selectinload(
+                LoadSnapshot.sources
+            ),
+        )
+        .join(
+            latest_action_ids,
+            DispatcherAction.id == latest_action_ids.c.id,
+        )
+        .filter(DispatcherAction.action_type.in_(LIVE_LOAD_ACTION_TYPES))
+        .order_by(DispatcherAction.created_at.desc(), DispatcherAction.id.desc())
+        .all()
+    )
+
+
 def get_action_state_for_session_loads(
     db: Session,
     *,
     truck_search_session_id: int,
-) -> dict[int, dict[str, bool]]:
+) -> dict[int, dict[str, Any]]:
     """
-    Return action-state booleans keyed by load_id for one truck search.
+    Return latest action state keyed by load_id for one truck search.
     """
 
     actions = (
@@ -128,28 +178,34 @@ def get_action_state_for_session_loads(
             DispatcherAction.truck_search_session_id
             == truck_search_session_id
         )
+        .order_by(
+            DispatcherAction.created_at.asc(),
+            DispatcherAction.id.asc(),
+        )
         .all()
     )
-    state: dict[int, dict[str, bool]] = {}
+    state: dict[int, dict[str, Any]] = {}
 
     for action in actions:
-        load_state = state.setdefault(
-            action.load_id,
-            {
-                "saved": False,
-                "rejected": False,
-                "favorite": False,
-                "contacted": False,
-            },
-        )
-
-        if action.action_type == "save":
-            load_state["saved"] = True
-        elif action.action_type == "reject":
-            load_state["rejected"] = True
-        elif action.action_type == "favorite":
-            load_state["favorite"] = True
-        elif action.action_type == "contacted":
-            load_state["contacted"] = True
+        state[action.load_id] = build_action_state(action.action_type)
 
     return state
+
+
+def build_action_state(action_type: str | None) -> dict[str, bool | str | None]:
+    """
+    Convert the latest action row into one active UI action.
+    """
+
+    active_action = action_type if action_type in VALID_ACTION_TYPES else None
+    if active_action == "cleared":
+        active_action = None
+
+    return {
+        "saved": active_action == "save",
+        "rejected": active_action == "reject",
+        "favorite": active_action == "favorite",
+        "contacted": active_action == "contacted",
+        "latest_action_type": action_type,
+        "active_action_type": active_action,
+    }

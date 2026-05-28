@@ -314,7 +314,7 @@ export function SearchControlCenter() {
             {selectedSession ? <Badge tone={statusTone(selectedSession.status)}>{selectedSession.status}</Badge> : null}
           </div>
           {selectedSession ? (
-            <SearchResultsTable scores={scores} loading={scoresLoading} error={scoresError} />
+            <SearchResultsTable truckSearchSessionId={selectedSession.id} scores={scores} loading={scoresLoading} error={scoresError} />
           ) : (
             <div className="border-t border-white/[0.08] p-5 text-sm text-slate-500">Select a session to view scored loads.</div>
           )}

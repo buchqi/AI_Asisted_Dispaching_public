@@ -7,7 +7,6 @@ import {
   Building2,
   ChartNoAxesCombined,
   CheckCircle2,
-  CircleDot,
   ClipboardCheck,
   MapPin,
   Pause,
@@ -25,6 +24,7 @@ import {
   UserRoundCheck,
   X
 } from "lucide-react";
+import { dispatcherActionsApi, type DispatcherActionLoad } from "@/api/dispatcher-actions-api";
 import { BrokerProfile, FreightLoad } from "@/types/load";
 import { driversApi } from "@/api/drivers-api";
 import { trucksApi } from "@/api/trucks-api";
@@ -70,6 +70,11 @@ const companiesStorageKey = "freight-command-companies";
 const trucksStorageKey = "freight-command-trucks";
 const driversStorageKey = "freight-command-drivers";
 const assignmentsStorageKey = "freight-command-load-assignments";
+
+type LiveActionLoad = {
+  load: FreightLoad;
+  state: "Saved" | "Contacted";
+};
 
 const brokerWorkflowDefaults: BrokerWorkflow = {
   watchedBrokerIds: [],
@@ -163,20 +168,22 @@ function PageFrame({
           {actions}
         </header>
 
-        <div className="grid gap-3 p-4 lg:grid-cols-3">
-          {stats.map((stat) => (
-            <MetricCard key={stat.label} {...stat} />
-          ))}
-        </div>
+        {stats.length > 0 ? (
+          <div className="grid gap-3 p-4 lg:grid-cols-3">
+            {stats.map((stat) => (
+              <MetricCard key={stat.label} {...stat} />
+            ))}
+          </div>
+        ) : null}
 
-        <div className="p-4 pt-0">{children}</div>
+        <div className={cn("p-4", stats.length > 0 && "pt-0")}>{children}</div>
       </section>
     </div>
   );
 }
 
 export function LiveLoadsPage() {
-  const loadDecisions = useWorkspaceStore((state) => state.loadDecisions);
+  const activeCompanyId = useCompanyStore((state) => state.activeCompanyId);
   const focusedLoadId = useWorkspaceStore((state) => state.focusedLoadId);
   const clearFocusedLoad = useWorkspaceStore((state) => state.clearFocusedLoad);
   const claimedLoadIds = useWorkspaceStore((state) => state.claimedLoadIds);
@@ -186,17 +193,14 @@ export function LiveLoadsPage() {
   const claimLoad = useWorkspaceStore((state) => state.claimLoad);
   const watchLoad = useWorkspaceStore((state) => state.watchLoad);
   const hideLoad = useWorkspaceStore((state) => state.hideLoad);
-  const restoreHiddenLoads = useWorkspaceStore((state) => state.restoreHiddenLoads);
   const markLoadCalled = useWorkspaceStore((state) => state.markLoadCalled);
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [hotOnly, setHotOnly] = useState(false);
-  const acceptedLoads = useMemo(
-    () => Object.values(loadDecisions).filter((decision) => decision.status === "accepted").map((decision) => decision.load),
-    [loadDecisions]
-  );
-  const [selectedLoad, setSelectedLoad] = useState<FreightLoad | null>(acceptedLoads[0] ?? null);
+  const [actionLoads, setActionLoads] = useState<LiveActionLoad[]>([]);
+  const [loadsLoading, setLoadsLoading] = useState(false);
+  const [loadsError, setLoadsError] = useState("");
+  const [selectedLoad, setSelectedLoad] = useState<FreightLoad | null>(null);
   const [drivers, setDrivers] = useState(() => initialDrivers);
   const [assignments, setAssignments] = useState<LoadAssignment[]>([]);
   const [selectedDriverName, setSelectedDriverName] = useState(drivers[0]?.name ?? "");
@@ -211,49 +215,59 @@ export function LiveLoadsPage() {
   });
   const [completionError, setCompletionError] = useState("");
   const sources = ["All", "DAT", "Truckstop", "Direct", "Email", "Private"];
-  const statuses = ["All", "new", "claimed", "watching", "assigned", "completed"];
+  const statuses = ["All", "Saved", "Contacted"];
   const assignmentByLoadId = useMemo(() => new Map(assignments.map((assignment) => [assignment.loadId, assignment])), [assignments]);
   const selectedAssignment = selectedLoad ? assignments.find((assignment) => assignment.loadId === selectedLoad.id) : undefined;
+  const liveLoads = useMemo(() => actionLoads.map((item) => item.load), [actionLoads]);
+  const stateByLoadId = useMemo(() => new Map(actionLoads.map((item) => [item.load.id, item.state])), [actionLoads]);
   const visibleLoads = useMemo(
     () =>
-      acceptedLoads
-        .filter((load) => !hiddenLoadIds.includes(load.id))
-        .filter((load) => source === "All" || load.source === source)
-        .filter((load) => {
-          if (statusFilter === "All") {
-            return true;
-          }
-          const assignment = assignmentByLoadId.get(load.id);
-          if (statusFilter === "assigned" || statusFilter === "completed") {
-            return assignment?.status === statusFilter;
-          }
-          return load.status === statusFilter;
-        })
-        .filter((load) => !hotOnly || load.hot)
-        .filter((load) => [load.pickup, load.delivery, load.broker, load.company, load.id].join(" ").toLowerCase().includes(query.toLowerCase()))
-        .slice(0, 18),
-    [acceptedLoads, assignmentByLoadId, hiddenLoadIds, hotOnly, query, source, statusFilter]
+      actionLoads
+        .filter((item) => !hiddenLoadIds.includes(item.load.id))
+        .filter((item) => source === "All" || item.load.source === source)
+        .filter((item) => statusFilter === "All" || item.state === statusFilter)
+        .filter((item) => [item.load.pickup, item.load.delivery, item.load.broker, item.load.company, item.load.id].join(" ").toLowerCase().includes(query.toLowerCase()))
+        .slice(0, 18)
+        .map((item) => item.load),
+    [actionLoads, hiddenLoadIds, query, source, statusFilter]
   );
 
   useEffect(() => {
-    if (selectedLoad && acceptedLoads.some((load) => load.id === selectedLoad.id)) {
+    if (!activeCompanyId) {
+      setActionLoads([]);
+      setSelectedLoad(null);
       return;
     }
-    setSelectedLoad(acceptedLoads[0] ?? null);
-  }, [acceptedLoads, selectedLoad]);
+
+    setLoadsLoading(true);
+    setLoadsError("");
+
+    dispatcherActionsApi
+      .listDispatcherActionLoads(activeCompanyId)
+      .then((items) => setActionLoads(items.map(toLiveActionLoad)))
+      .catch((requestError) => setLoadsError(getMessage(requestError, "Live loads could not be loaded.")))
+      .finally(() => setLoadsLoading(false));
+  }, [activeCompanyId]);
+
+  useEffect(() => {
+    if (selectedLoad && liveLoads.some((load) => load.id === selectedLoad.id)) {
+      return;
+    }
+    setSelectedLoad(liveLoads[0] ?? null);
+  }, [liveLoads, selectedLoad]);
 
   useEffect(() => {
     if (!focusedLoadId) {
       return;
     }
 
-    const focused = acceptedLoads.find((load) => load.id === focusedLoadId);
+    const focused = liveLoads.find((load) => load.id === focusedLoadId);
     if (focused) {
       setSelectedLoad(focused);
       setQuery(focused.id);
     }
     clearFocusedLoad();
-  }, [acceptedLoads, clearFocusedLoad, focusedLoadId]);
+  }, [clearFocusedLoad, focusedLoadId, liveLoads]);
 
   const assignSelectedLoad = () => {
     // TODO: Assign loads through FastAPI.
@@ -291,23 +305,9 @@ export function LiveLoadsPage() {
   return (
     <PageFrame
       title="Live Loads"
-      subtitle="Source-level feed control, hot load review, and load detail preview."
+      subtitle="Dispatcher work queue for saved and contacted search results."
       icon={Route}
-      stats={[
-        { label: "Visible", value: String(visibleLoads.length), tone: "cyan" },
-        { label: "Hot", value: String(visibleLoads.filter((load) => load.hot).length), tone: "red" },
-        { label: "Avg RPM", value: `$${average(visibleLoads.map((load) => load.rpm)).toFixed(2)}`, tone: "green" }
-      ]}
-      actions={
-        <div className="flex gap-2">
-          <IconButton label="Show only hot loads" onClick={() => setHotOnly((value) => !value)} className={hotOnly ? "border-red-300/40 bg-red-400/15 text-red-100" : undefined}>
-            <CircleDot className="h-4 w-4" />
-          </IconButton>
-          <IconButton label="Restore hidden loads" onClick={restoreHiddenLoads}>
-            <Play className="h-4 w-4" />
-          </IconButton>
-        </div>
-      }
+      stats={[]}
     >
       <ToolbarSearch query={query} onQueryChange={setQuery} placeholder="Search pickup, delivery, broker, load ID..." />
       <SegmentedControl values={sources} active={source} onChange={setSource} className="mt-3" />
@@ -315,11 +315,17 @@ export function LiveLoadsPage() {
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="overflow-hidden border border-white/[0.08] bg-white/[0.025]">
           <DataHeader columns="grid-cols-[120px_1fr_1fr_90px_90px_120px_120px]" labels={["Load", "Pickup", "Delivery", "RPM", "Rate", "Broker", "State"]} />
-          {visibleLoads.length === 0 ? (
-            <div className="p-5 text-sm text-slate-500">No accepted loads yet. Accept a load from Dispatch Workspace to move it here.</div>
+          {loadsLoading ? (
+            <div className="p-5 text-sm text-slate-500">Loading saved and contacted loads...</div>
+          ) : null}
+          {loadsError ? (
+            <div className="border-t border-red-400/20 bg-red-400/10 p-4 text-sm text-red-200">{loadsError}</div>
+          ) : null}
+          {!loadsLoading && !loadsError && visibleLoads.length === 0 ? (
+            <div className="p-5 text-sm text-slate-500">No saved or contacted loads yet. Use Dispatcher Workspace actions to add loads here.</div>
           ) : null}
           {visibleLoads.map((load) => {
-            const assignment = assignmentByLoadId.get(load.id);
+            const liveState = stateByLoadId.get(load.id);
 
             return (
               <button
@@ -335,11 +341,7 @@ export function LiveLoadsPage() {
                 <span className="font-mono">{formatCurrency(load.rate)}</span>
                 <span className="truncate">{load.broker}</span>
                 <span className="flex flex-wrap gap-1">
-                  {assignment?.status === "completed" ? <Badge tone="green">completed</Badge> : null}
-                  {assignment?.status === "assigned" ? <Badge tone="amber">assigned</Badge> : null}
-                  {claimedLoadIds.includes(load.id) ? <Badge tone="green">claimed</Badge> : null}
-                  {watchedLoadIds.includes(load.id) ? <Badge tone="violet">watch</Badge> : null}
-                  {calledLoadIds.includes(load.id) ? <Badge tone="cyan">called</Badge> : null}
+                  <Badge tone={liveState === "Contacted" ? "cyan" : "green"}>{liveState ?? "Saved"}</Badge>
                 </span>
               </button>
             );
@@ -392,7 +394,7 @@ export function LiveLoadsPage() {
               />
             </>
           ) : (
-            <div className="border border-white/[0.08] bg-white/[0.025] p-5 text-sm text-slate-500">Select an accepted load to assign a driver and trailer workflow.</div>
+            <div className="border border-white/[0.08] bg-white/[0.025] p-5 text-sm text-slate-500">Select a saved or contacted load to preview details.</div>
           )}
         </div>
       </div>
@@ -409,6 +411,110 @@ export function LiveLoadsPage() {
       ) : null}
     </PageFrame>
   );
+}
+
+function toLiveActionLoad(item: DispatcherActionLoad): LiveActionLoad {
+  const raw = item.load_snapshot.raw_payload ?? {};
+  const miles = item.load_snapshot.miles ?? getNumber(raw, "miles") ?? 0;
+  const rate = item.load_snapshot.posted_rate ?? getNumber(raw, "posted_rate", "rate") ?? 0;
+  const rpm = miles > 0 && rate > 0 ? rate / miles : getNumber(raw, "rpm") ?? 0;
+  const source = normalizeLoadSource(item.source.load_board_name);
+
+  return {
+    state: item.action_type === "contacted" ? "Contacted" : "Saved",
+    load: {
+      id: String(item.load_id),
+      ageMinutes: getAgeMinutes(item.created_at),
+      pickup: formatLocation(item.load.origin_city, item.load.origin_state),
+      delivery: formatLocation(item.load.destination_city, item.load.destination_state),
+      rpm,
+      miles,
+      deadhead: getNumber(raw, "deadhead_miles", "deadhead") ?? 0,
+      weight: item.load_snapshot.weight ?? getNumber(raw, "weight") ?? 0,
+      equipment: normalizeEquipment(item.load.equipment_type),
+      broker: item.load.broker_name ?? "Unknown broker",
+      company: item.load.broker_name ?? "Unknown broker",
+      phone: item.source.contact_phone ?? getString(raw, "contact_phone", "phone") ?? "n/a",
+      rate,
+      postedTime: formatShortDate(item.created_at),
+      source,
+      status: item.action_type === "contacted" ? "calling" : "watching",
+      dispatcher: "Current dispatcher",
+      aiScore: 0,
+      hot: rpm >= 2.75,
+      receivedAt: new Date(item.created_at).getTime(),
+      updatedAt: new Date(item.created_at).getTime()
+    }
+  };
+}
+
+function normalizeEquipment(value: string | null): FreightLoad["equipment"] {
+  const validEquipment: FreightLoad["equipment"][] = ["Dry Van", "Reefer", "Flatbed", "Power Only", "Step Deck"];
+  return validEquipment.find((item) => item.toLowerCase() === value?.toLowerCase()) ?? "Dry Van";
+}
+
+function normalizeLoadSource(value: string | null): FreightLoad["source"] {
+  const validSources: FreightLoad["source"][] = ["DAT", "Truckstop", "Direct", "Email", "Private"];
+  return validSources.find((item) => item.toLowerCase() === value?.toLowerCase()) ?? "DAT";
+}
+
+function getNumber(raw: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getString(raw: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function formatLocation(city: string | null, state: string | null) {
+  const parts = [city, state].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : "Not set";
+}
+
+function getAgeMinutes(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round((Date.now() - timestamp) / 60000));
+}
+
+function formatShortDate(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return "n/a";
+  }
+
+  return new Date(timestamp).toLocaleDateString();
+}
+
+function getMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 export function AssignmentsPage() {

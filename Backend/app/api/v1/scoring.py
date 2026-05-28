@@ -23,6 +23,7 @@ from app.services.ai_explanation_service import (
     AIExplanationService,
     MIN_EXPLANATION_TEXT_LENGTH,
 )
+from app.services.dispatcher_action_service import get_action_state_for_session_loads
 from app.services.membership_service import require_company_member
 from app.services.search_service import get_truck_search_session
 from app.services.scoring_service import (
@@ -152,14 +153,25 @@ def list_truck_search_session_scores_endpoint(
         .order_by(ScoringResult.score.desc(), ScoringResult.id.asc())
         .all()
     )
+    action_state = get_action_state_for_session_loads(
+        db=db,
+        truck_search_session_id=truck_search_session_id,
+    )
 
     return [
-        serialize_scoring_result_with_snapshot(result)
+        serialize_scoring_result_with_snapshot(
+            result,
+            action_state=action_state.get(result.load_id),
+        )
         for result in results
     ]
 
 
-def serialize_scoring_result_with_snapshot(result: ScoringResult) -> dict:
+def serialize_scoring_result_with_snapshot(
+    result: ScoringResult,
+    *,
+    action_state: dict | None = None,
+) -> dict:
     snapshot = result.load_snapshot
     load = snapshot.load
     source = snapshot.sources[0] if snapshot.sources else None
@@ -174,6 +186,7 @@ def serialize_scoring_result_with_snapshot(result: ScoringResult) -> dict:
         "truck_search_session_id": result.truck_search_session_id,
         "score": result.score,
         "breakdown": result.breakdown,
+        "action_state": action_state,
         "created_at": result.created_at,
         "updated_at": result.updated_at,
         "load_snapshot": {

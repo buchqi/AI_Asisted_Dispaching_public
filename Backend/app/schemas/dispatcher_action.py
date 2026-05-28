@@ -25,3 +25,5 @@ class LoadActionState(BaseModel):
     rejected: bool = False
     favorite: bool = False
     contacted: bool = False
+    latest_action_type: str | None = None
+    active_action_type: str | None = None

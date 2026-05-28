@@ -110,6 +110,14 @@ export type SearchScoreResult = {
   truck_search_session_id: number | null;
   score: number;
   breakdown: ScoreBreakdown | null;
+  action_state: {
+    saved?: boolean;
+    rejected?: boolean;
+    favorite?: boolean;
+    contacted?: boolean;
+    latest_action_type?: string | null;
+    active_action_type?: string | null;
+  } | null;
   load_snapshot: LoadSnapshotSummary;
   created_at: string;
   updated_at: string;

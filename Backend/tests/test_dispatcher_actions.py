@@ -7,6 +7,7 @@ from app.db.base import Base
 from app.models import (
     Company,
     CompanyMembership,
+    DispatcherAction,
     Load,
     LoadSnapshot,
     SearchBatch,
@@ -153,8 +154,42 @@ def test_owner_dispatcher_can_store_action_history(db):
 
     assert save_action.action_type == "save"
     assert contacted_action.action_type == "contacted"
-    assert state[load.id]["saved"] is True
+    assert state[load.id]["saved"] is False
     assert state[load.id]["contacted"] is True
+    assert state[load.id]["active_action_type"] == "contacted"
+
+
+def test_clear_action_appends_history_and_resets_active_state(db):
+    owner, _, session, load = create_action_fixture(db)
+
+    create_dispatcher_action(
+        db=db,
+        truck_search_session_id=session.id,
+        load_id=load.id,
+        action_type="favorite",
+        current_user=owner,
+    )
+    clear_action = create_dispatcher_action(
+        db=db,
+        truck_search_session_id=session.id,
+        load_id=load.id,
+        action_type="cleared",
+        current_user=owner,
+    )
+    state = get_action_state_for_session_loads(
+        db=db,
+        truck_search_session_id=session.id,
+    )
+    actions = db.query(DispatcherAction).filter(
+        DispatcherAction.truck_search_session_id == session.id,
+        DispatcherAction.load_id == load.id,
+    ).all()
+
+    assert clear_action.action_type == "cleared"
+    assert len(actions) == 2
+    assert state[load.id]["favorite"] is False
+    assert state[load.id]["active_action_type"] is None
+    assert state[load.id]["latest_action_type"] == "cleared"
 
 
 def test_non_owner_dispatcher_cannot_act_on_search_result(db):
