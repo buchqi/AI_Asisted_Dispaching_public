@@ -870,83 +870,75 @@ Dispatcher User
 
 # Why Ownership Matters
 
-Without ownership:
+Without ownership controls, multiple dispatchers can interact with the same search simultaneously, leading to conflicting actions and inconsistent workflow states.
 
-```text
-Multiple dispatchers
-One search
-Many conflicting actions
-```
+Example:
 
-Possible outcome:
+Dispatcher A saves a load.
+Dispatcher B rejects the same load.
+Dispatcher C contacts the broker.
 
-```text
-Dispatcher A saves
-Dispatcher B rejects
-Dispatcher C contacts
-```
+As a result, the system loses a clear source of responsibility, creating confusion and making it difficult to track the actual status of the load.
 
-Chaos.
+Ownership enforcement solves this problem by assigning a single active dispatcher to a search session. That dispatcher is responsible for all operational decisions within the workflow, while other company members can monitor progress in a read-only capacity.
 
-Ownership enforcement guarantees:
+This ensures:
 
-```text
-One active dispatcher controls one search workflow
-```
-
-while others remain observers.
+- Clear accountability
+- Consistent load status management
+- Elimination of conflicting actions
+- Predictable workflow behavior
+- Better team coordination
 
 ---
 
 # Future Uses
 
-Dispatcher actions become the foundation for:
+Dispatcher actions are not just operational records—they form the foundation for many future platform capabilities.
 
-```text
-Booking workflow
-AI recommendations
-Dispatcher statistics
-Activity timelines
-Negotiation tracking
-Load pipelines
-CRM-style workflows
-```
+The action history collected during search sessions can later be used to support:
 
-Many future features depend on action history.
+- Load booking workflows
+- AI-powered recommendations
+- Dispatcher performance analytics
+- Activity timelines and auditing
+- Negotiation tracking
+- Load pipeline management
+- CRM-style operational workflows
+
+Because of this, storing dispatcher actions early in the platform's lifecycle is a critical architectural decision. Many advanced features will rely on this historical data.
 
 ---
 
 # What Is Still Missing
 
-Phase 12 does not yet include:
+Phase 12 introduces dispatcher interactions but does not yet implement the full load lifecycle.
 
-```text
-Undo actions
-Booking
-Negotiation workflow
-Load status pipeline
-AI scoring integration
-AI explanations
-Automatic recommendations
-```
+The following capabilities are planned for future phases:
 
-Those will be added later.
+- Action reversal (undo functionality)
+- Load booking workflows
+- Broker negotiation management
+- Operational load status pipelines
+- AI scoring integration
+- AI-generated explanations
+- Automated load recommendations
+
+These features will build upon the action-tracking foundation established in this phase.
 
 ---
 
 # What Phase 12 Proves
 
-Phase 12 proves:
+Phase 12 validates that search results can transition from passive information to actionable workflow objects.
 
-```text
-Dispatchers can interact with search results
-Ownership enforcement works
-Action history is stored
-Duplicate actions are prevented
-Load state can be tracked
-Search workflows become actionable
-```
+Specifically, it proves that:
 
-This is the first phase where search results become part of a real dispatcher workflow instead of being read-only information.
+- Dispatchers can perform actions on search results
+- Ownership enforcement correctly restricts conflicting operations
+- Action history is stored and auditable
+- Duplicate actions are prevented
+- Load state changes can be tracked over time
+- Search sessions can serve as the starting point of a complete dispatch workflow
 
----
+This represents a significant milestone in the system's evolution, as search results are no longer read-only records but become active entities that dispatchers can manage and act upon.
