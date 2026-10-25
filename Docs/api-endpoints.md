@@ -1,5 +1,7 @@
 # AI-Assisted Dispatching MVP — API Endpoint Plan
 
+> Historical API plan. Proposed endpoints and safeguards below are not proof of implemented behavior. Use the running backend `/docs`, `Backend/app/api/v1/`, and schemas for actual contracts; see [PROJECT_STATE.md](PROJECT_STATE.md) for gaps and verified behavior.
+
 This document defines the first version of the FastAPI endpoint plan for the AI-assisted dispatching MVP.
 
 The goal of this file is not to describe every implementation detail. The goal is to give enough structure to start building the backend without overdesigning too early.

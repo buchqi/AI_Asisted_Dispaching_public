@@ -1,5 +1,8 @@
 # Phase 9 — Mock Search Worker Flow
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+> Current correction: HTTP returns after scheduling FastAPI BackgroundTasks; workers then run sequentially with a fresh DB session. Results are persisted and backend WebSocket events exist. Search requests use `overrides`, not `filters`.
+
 ## Goal
 
 Phase 9 creates the first working search execution flow without using real load-board automation.

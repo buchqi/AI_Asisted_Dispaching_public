@@ -1,5 +1,7 @@
 # AI-Assisted Dispatching MVP — Backend Structure
 
+> Historical structure proposal, retained for layer/provider rationale. Example paths, environment variables, worker responsibilities, and API routes are not a current implementation inventory. See [PROJECT_STATE.md](PROJECT_STATE.md) and the maintained [backend README](../Backend/README.md).
+
 ## 1. Backend Structure Goal
 
 The backend structure should keep the FastAPI project clean, modular, and easy to extend.

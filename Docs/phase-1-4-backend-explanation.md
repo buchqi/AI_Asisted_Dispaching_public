@@ -1,5 +1,7 @@
 # Phase 1-4 Backend Explanation
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+
 ## 1. Big Picture
 
 This backend is the foundation for an AI-Assisted Dispatching MVP. It uses FastAPI for the API, PostgreSQL for permanent data storage, SQLAlchemy for working with the database from Python, Alembic for database migrations, and JWT authentication for protected routes.

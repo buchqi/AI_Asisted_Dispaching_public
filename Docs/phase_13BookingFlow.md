@@ -1,5 +1,8 @@
 # Phase 13 — Booking Flow
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+> Current scope: booking creates an internal database record. It does not confirm freight with a broker or update truck/driver capacity automatically, and the frontend booking flow is not connected.
+
 ## Goal
 
 Phase 13 adds the booking workflow.

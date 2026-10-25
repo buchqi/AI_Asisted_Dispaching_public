@@ -1,5 +1,7 @@
 # Phase 10 — Load Result Storage
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+
 ## Goal
 
 Phase 10 introduces the first real storage layer for search results.

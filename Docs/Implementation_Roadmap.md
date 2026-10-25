@@ -1,5 +1,7 @@
 # AI-Assisted Dispatching MVP — Implementation Roadmap
 
+> Historical build-order proposal, not a current progress tracker or approved next-development plan. Phase criteria are retained as original intent. Read [PROJECT_STATE.md](PROJECT_STATE.md) before planning further work.
+
 ## 1. Roadmap Goal
 
 This roadmap defines the recommended build order for the AI-Assisted Dispatching MVP.

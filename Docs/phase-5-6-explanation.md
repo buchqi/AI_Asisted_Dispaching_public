@@ -1,5 +1,7 @@
 # Phase 5-6 Explanation
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+
 This document explains Phase 5 and Phase 6 of the AI-Assisted Dispatching MVP backend.
 
 The backend uses:

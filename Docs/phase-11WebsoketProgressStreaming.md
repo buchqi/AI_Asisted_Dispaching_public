@@ -1,5 +1,8 @@
 # Phase 11 — WebSocket Progress Streaming
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+> Current scope: backend WebSocket routes exist, but the frontend polls REST every four seconds and does not subscribe. Helper tests do not establish end-to-end or production security. Query-token authentication remains a risk, not a production approval.
+
 ## Goal
 
 Phase 11 introduces real-time communication between the backend and connected clients.

@@ -1,5 +1,8 @@
 # Phase 7–8 API Endpoint Documentation
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+> Current correction: `/searches/start` schedules background mock workers and accepts `overrides`, not the retired `filters` payload. Board health remains metadata, not a live connectivity check.
+
 ## Purpose
 
 This document explains the API endpoints added in:

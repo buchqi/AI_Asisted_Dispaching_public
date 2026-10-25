@@ -1,5 +1,7 @@
 # Freight Command Frontend Analysis
 
+> Historical prototype inventory; product relevance is uncertain. The frontend-only/localStorage/mock-stream architecture and many paths/contracts below are superseded. Retained because the assignment completion, POD, analytics, broker, and search ideas contain unique planning detail. They are not approved requirements or proof of current functionality. See the maintained [frontend README](README.md) and [PROJECT_STATE.md](../Docs/PROJECT_STATE.md).
+
 This document explains how the current frontend works, where data comes from, how the main workflows are connected, and which parts are temporary mock/local frontend logic that should later be replaced by backend APIs.
 
 ## 1. Project Purpose

@@ -1,5 +1,7 @@
 # Phase 15 Progress Report — AI Explanations
 
+> Historical report dated 2026-05-26. Provider successes/failures, credential rotation, and completion claims below were not reverified in the 2026-10-22 review. The investigation remains useful context; see [PROJECT_STATE.md](PROJECT_STATE.md) for current code evidence and validation limits.
+
 **Date:** 2026-05-26
 
 ---

@@ -1,5 +1,8 @@
 # Phase 12 — Dispatcher Actions
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+> Current correction: stored actions are `save`, `reject`, `favorite`, `contacted`, and `cleared`. Only the latest action is active; flags are not cumulative. Requests append history, including repeats; there is no duplicate suppression or note field. `clear-action` provides reversal. Owner checks also apply after session completion. The current frontend action/queue integration is described in [PROJECT_STATE.md](PROJECT_STATE.md).
+
 ## Goal
 
 Phase 12 introduces dispatcher interaction with search results.

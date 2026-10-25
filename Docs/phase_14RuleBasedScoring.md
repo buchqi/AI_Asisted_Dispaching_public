@@ -1,5 +1,8 @@
 # Phase 14 — Rule-Based Scoring
 
+> Historical phase note, retained for rationale. It describes a development milestone, not the complete current product. For verified behavior and current limitations, read [PROJECT_STATE.md](PROJECT_STATE.md); use the maintained [backend README](../Backend/README.md) for setup. Older examples may use retired contracts.
+> Current correction: score GET endpoints recalculate/upsert with current dispatcher preferences; they do not simply reuse a historical cached score. Mock workers store loads but do not automatically score them. Driver preference scoring is still zero. AI endpoints exist separately.
+
 ## Goal
 
 Phase 14 introduces the first ranking system for load results.

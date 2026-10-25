@@ -1,5 +1,7 @@
 # AI-Assisted Dispatching MVP — Database Tables & Domain Modeling
 
+> Historical domain design, not the implemented schema. Proposed UUIDs, JSONB, fields, statuses, and relationships may differ from current integer-key SQLAlchemy models and migrations. See [PROJECT_STATE.md](PROJECT_STATE.md) for the current data model and migration findings.
+
 ## 1. Database Modeling Goal
 
 The database model is designed to support a multi-company dispatching platform where dispatchers can manage trucks, drivers, load-board sessions, searches, search results, dispatcher decisions, scoring, AI explanations, and booked-load history.

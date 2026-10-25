@@ -1,5 +1,7 @@
 # AI-Assisted Dispatching MVP — System Architecture
 
+> Historical design proposal. Browser automation, autonomous agents, and some workflow steps below are intentions, not implemented capabilities. The current LLM provider is Gemini. See [PROJECT_STATE.md](PROJECT_STATE.md) for verified architecture and status.
+
 ## 1. MVP Goal
 
 The goal of this MVP is to help dispatch companies search loads for their trucks across multiple load boards, rank the results, explain the best matches with AI, and allow dispatchers to save, reject, contact, or book loads.
